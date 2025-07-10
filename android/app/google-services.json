@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "749550140449",
+    "project_id": "park-sg",
+    "storage_bucket": "park-sg.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:749550140449:android:07b4de11c90bba990ef760",
+        "android_client_info": {
+          "package_name": "com.chandu.park_sg"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "749550140449-cq433qh1d5qto33c8seh93m012dgq2ru.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chandu.park_sg",
+            "certificate_hash": "62b4b65fe4cebdb9b001e729fbba6eb793b69c5c"
+          }
+        },
+        {
+          "client_id": "749550140449-purdu5litbqpiauu5rpk79nvgrv363g5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chandu.park_sg",
+            "certificate_hash": "359c878fb1d74054292eb6aa22f34c1d507dd808"
+          }
+        },
+        {
+          "client_id": "749550140449-ljo17tvplfb0a2ok2hsnvr35e5d9hqgo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMDDDrmC84g8mHr7xmUi9tPA1L00QUTZ4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "749550140449-ljo17tvplfb0a2ok2hsnvr35e5d9hqgo.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "749550140449-tri6b7cehkr7slgc17uk81344prokp15.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.chandu.parkSg"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
