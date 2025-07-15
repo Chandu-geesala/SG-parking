@@ -367,8 +367,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
                         _buildUserDetailsSection(user, userEmail),
                         const SizedBox(height: 24),
                         _buildSlotDetailsSection(user, userEmail),
-                        const SizedBox(height: 24),
-                        _buildBookingDataSection(user, userEmail),
+
                       ],
                     ),
                   ),
@@ -494,130 +493,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
     );
   }
 
-  Widget _buildBookingDataSection(Map<String, dynamic> user, String userEmail) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Booking Data',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2D3748),
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: _selectMonth,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF6C5CE7).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF6C5CE7)),
-                ),
-                child: Text(
-                  DateFormat('MMM yyyy').format(_selectedMonth),
-                  style: const TextStyle(
-                    color: Color(0xFF6C5CE7),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        FutureBuilder<List<dynamic>>(
-          future: Future.wait([
-            _getTotalUserBookings(userEmail),
-            _getUserBookings(userEmail, _selectedMonth),
-          ]),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            final totalBookings = snapshot.data?[0] as int? ?? 0;
-            final monthlyBookings = snapshot.data?[1] as List<Map<String, dynamic>>? ?? [];
-
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildBookingStatCard(
-                          'Total Bookings',
-                          totalBookings.toString(),
-                          Icons.event_seat,
-                          Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildBookingStatCard(
-                          'This Month',
-                          monthlyBookings.length.toString(),
-                          Icons.calendar_today,
-                          Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (monthlyBookings.isNotEmpty)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Recent Bookings (${DateFormat('MMM yyyy').format(_selectedMonth)})',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2D3748),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        ...monthlyBookings.take(10).map((booking) => _buildBookingItem(booking)).toList(),
-                      ],
-                    )
-                  else
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Text(
-                          'No bookings found for selected month',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
 
   Widget _buildBookingStatCard(String title, String value, IconData icon, Color color) {
     return Container(

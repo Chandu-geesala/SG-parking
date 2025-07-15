@@ -5,6 +5,7 @@ import 'package:park_sg/view/admin/slots.dart';
 import 'package:park_sg/view/admin/users.dart';
 import 'package:park_sg/viewModel/authService.dart';
 import '../../viewModel/bookingBackend.dart';
+import 'analytics.dart';
 import 'bookings.dart';
 import 'package:park_sg/utils/booking_cards.dart';
 
@@ -120,6 +121,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 1,
+
         title: Row(
           children: [
             Image.asset(
@@ -129,6 +131,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ],
         ),
+
+
         actions: [
           _buildProfileMenu(context),
           const SizedBox(width: 16),
@@ -275,6 +279,24 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       );
                     },
                   ),
+
+                  _buildActionCard(
+                    icon: Icons.remove_from_queue,
+                    title: 'Analytics',
+                    subtitle: 'Manage privileges',
+                    color: Colors.orangeAccent,
+                    onTap: () {
+                      // Let user search manually
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AnalyticsPage(),
+                        ),
+                      );
+                    },
+                  ),
+
+
                 ],
               ),
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../auth_screens/signUp.dart';
 import '../auth_screens/verify.dart';
 import '../home.dart';
 import 'onboarding_page.dart';
+import 'offline_page.dart'; // Import the offline page
 
 class MysplashScreen extends StatefulWidget {
   const MysplashScreen({super.key});
@@ -30,14 +32,40 @@ class _MysplashScreenState extends State<MysplashScreen> {
 
   void initTimer() async {
     Timer(const Duration(seconds: 2), () async {
-      await _navigateBasedOnUserState();
+      await _checkInternetAndNavigate();
     });
+  }
+
+  Future<void> _checkInternetAndNavigate() async {
+    // Check internet connectivity first
+    bool hasInternet = await _checkInternetConnection();
+
+    if (!hasInternet) {
+      print('🌐 No internet connection, navigating to offline page');
+      _navigateToPage(OfflinePage());
+      return;
+    }
+
+    // If internet is available, proceed with normal navigation
+    await _navigateBasedOnUserState();
+  }
+
+  Future<bool> _checkInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    } catch (e) {
+      print('❌ Error checking internet connection: $e');
+      return false;
+    }
   }
 
   Future<void> _navigateBasedOnUserState() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-      bool isIntroCompleted =  true;
+      bool isIntroCompleted = true;
 
       User? user = FirebaseAuth.instance.currentUser;
       await user?.reload();
@@ -46,8 +74,6 @@ class _MysplashScreenState extends State<MysplashScreen> {
       print('📖 Intro completed: $isIntroCompleted');
       print('👤 User logged in: ${user != null}');
       print('✅ Email verified: ${user?.emailVerified}');
-
-
 
       if (user != null) {
         bool isAdmin = await isCurrentUserAdmin();
@@ -68,7 +94,6 @@ class _MysplashScreenState extends State<MysplashScreen> {
           return;
         }
       }
-
 
       // 2. No logged in user: check pending signup
       print('🔍 Checking for pending signup data...');
@@ -101,9 +126,6 @@ class _MysplashScreenState extends State<MysplashScreen> {
     final adminDoc = await FirebaseFirestore.instance.collection('admins').doc(user.email).get();
     return adminDoc.exists;
   }
-
-
-
 
   void _navigateToPage(Widget page) {
     if (mounted) {

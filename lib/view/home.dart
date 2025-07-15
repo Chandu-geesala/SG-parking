@@ -165,31 +165,22 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         shadowColor: Colors.grey.withOpacity(0.1),
+
+
+
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.local_parking_rounded,
-                color: Colors.blue[600],
-                size: 28,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              'Parking Manager',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 20,
-                color: Colors.black87,
-              ),
+            Image.asset(
+              'assets/txt.png',
+              height: 40,
+              fit: BoxFit.contain,
             ),
           ],
         ),
+
+
+
+
         actions: [
           Container(
             margin: const EdgeInsets.only(right: 16),
