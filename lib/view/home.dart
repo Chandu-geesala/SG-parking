@@ -97,10 +97,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String getDisplayNameFromEmail(String email) {
     // Get the part before @
     final usernamePart = email.split('@').first;
-    // Replace . with space, then capitalize each word
-    final words = usernamePart.split('.').map((w) {
-      if (w.isEmpty) return '';
-      return w[0].toUpperCase() + w.substring(1);
+    // Replace . with space, then capitalize each word properly
+    final words = usernamePart.split('.').map((word) {
+      if (word.isEmpty) return '';
+      // Convert entire word to lowercase first, then capitalize first letter
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
     }).toList();
     return words.join(' ');
   }
@@ -162,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: Colors.white,
         elevation: 0,
         shadowColor: Colors.grey.withOpacity(0.1),
@@ -234,8 +236,9 @@ class _HomeScreenState extends State<HomeScreen> {
             }
 
             final slotData = snapshot.data;
-            final userName = FirebaseAuth.instance.currentUser?.displayName ??
-                FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 'User';
+            final currentUser = FirebaseAuth.instance.currentUser;
+            final userName = currentUser?.displayName ??
+                (currentUser?.email != null ? getDisplayNameFromEmail(currentUser!.email!) : 'User');
 
             return SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),

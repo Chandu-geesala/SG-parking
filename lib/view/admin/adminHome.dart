@@ -114,15 +114,47 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return null;
   }
 
+  // Helper method to determine if we're on a large screen
+  bool _isLargeScreen(BuildContext context) {
+    return MediaQuery.of(context).size.width > 768;
+  }
+
+  // Helper method to get responsive grid count
+  int _getGridCount(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return 4; // Desktop
+    if (width > 768) return 3;  // Tablet
+    return 2; // Mobile
+  }
+
+  // Helper method to get responsive padding
+  EdgeInsets _getResponsivePadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return const EdgeInsets.symmetric(horizontal: 80, vertical: 20);
+    if (width > 768) return const EdgeInsets.symmetric(horizontal: 40, vertical: 20);
+    return const EdgeInsets.all(20);
+  }
+
+  // Helper method to get max width for content
+  double? _getMaxWidth(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return 1200;
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isLargeScreen = _isLargeScreen(context);
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: Colors.white,
         elevation: 1,
-
+        centerTitle: isLargeScreen,
         title: Row(
+          mainAxisSize: isLargeScreen ? MainAxisSize.min : MainAxisSize.max,
           children: [
             Image.asset(
               'assets/txt.png',
@@ -131,11 +163,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ],
         ),
-
-
         actions: [
           _buildProfileMenu(context),
-          const SizedBox(width: 16),
+          SizedBox(width: isLargeScreen ? 80 : 16),
         ],
       ),
       body: RefreshIndicator(
@@ -143,188 +173,198 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         color: Colors.blue,
         backgroundColor: Colors.white,
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(), // Important for pull-to-refresh
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Welcome Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Welcome back, ${_getDisplayName()}!',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 2,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _currentUser?.email ?? 'Ready to manage the lot like a pro?',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: _getMaxWidth(context) ?? double.infinity,
+              ),
+              padding: _getResponsivePadding(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Welcome Card
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              const Text(
-                'Quick Actions',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Action Cards Grid
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 1.1,
-                children: [
-                  _buildActionCard(
-                    icon: Icons.people_outline,
-                    title: 'All Users',
-                    subtitle: 'Manage user accounts',
-                    color: Colors.blue,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AllUsersPage(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Welcome back, ${_getDisplayName()}!',
+                                    style: TextStyle(
+                                      fontSize: isLargeScreen ? 24 : 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 2,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _currentUser?.email ?? 'Ready to manage the lot like a pro?',
+                                    style: TextStyle(
+                                      fontSize: isLargeScreen ? 16 : 14,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: isLargeScreen ? 48 : 32),
+
+                  Text(
+                    'Quick Actions',
+                    style: TextStyle(
+                      fontSize: isLargeScreen ? 22 : 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+
+                  SizedBox(height: isLargeScreen ? 24 : 20),
+
+                  // Action Cards Grid - Responsive
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final crossAxisCount = _getGridCount(context);
+                      final childAspectRatio = isLargeScreen ? 1.2 : 1.1;
+
+                      return GridView.count(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: isLargeScreen ? 24 : 16,
+                        mainAxisSpacing: isLargeScreen ? 24 : 16,
+                        childAspectRatio: childAspectRatio,
+                        children: [
+                          _buildActionCard(
+                            icon: Icons.people_outline,
+                            title: 'All Users',
+                            subtitle: 'Manage user accounts',
+                            color: Colors.blue,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const AllUsersPage(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
+                            icon: Icons.local_parking,
+                            title: 'All Slots',
+                            subtitle: 'Manage privileges',
+                            color: Colors.purple,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const DataUploadUI(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
+                            icon: Icons.update,
+                            title: 'Booking Data',
+                            subtitle: 'Manage privileges',
+                            color: Colors.greenAccent,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const BookingDashboard(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
+                            icon: Icons.remove_from_queue,
+                            title: 'Requests',
+                            subtitle: 'Manage privileges',
+                            color: Colors.orangeAccent,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const RequestsPage(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
+                            icon: Icons.analytics_outlined,
+                            title: 'Analytics',
+                            subtitle: 'View insights',
+                            color: Colors.teal,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AnalyticsPage(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       );
                     },
                   ),
-                  _buildActionCard(
-                    icon: Icons.person_outline,
-                    title: 'All Slots',
-                    subtitle: 'Manage privileges',
-                    color: Colors.purple,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const DataUploadUI(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildActionCard(
-                    icon: Icons.update,
-                    title: 'Booking Data',
-                    subtitle: 'Manage privileges',
-                    color: Colors.greenAccent,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const BookingDashboard(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildActionCard(
-                    icon: Icons.remove_from_queue,
-                    title: 'Requests',
-                    subtitle: 'Manage privileges',
-                    color: Colors.orangeAccent,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const RequestsPage(),
-                        ),
-                      );
-                    },
-                  ),
 
-                  _buildActionCard(
-                    icon: Icons.remove_from_queue,
-                    title: 'Analytics',
-                    subtitle: 'Manage privileges',
-                    color: Colors.orangeAccent,
-                    onTap: () {
-                      // Let user search manually
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AnalyticsPage(),
+                  SizedBox(height: isLargeScreen ? 48 : 32),
+
+                  // Quick Stats Section
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(isLargeScreen ? 32 : 20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                      );
-                    },
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const BookingCards(),
+                      ],
+                    ),
                   ),
-
-
                 ],
               ),
-
-              const SizedBox(height: 32),
-
-              // Quick Stats Section
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const BookingCards(),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -392,6 +432,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     required Color color,
     required VoidCallback onTap,
   }) {
+    final isLargeScreen = _isLargeScreen(context);
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -410,32 +452,43 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(isLargeScreen ? 20 : 16),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     icon,
-                    size: 28,
+                    size: isLargeScreen ? 32 : 28,
                     color: Colors.black,
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: isLargeScreen ? 20 : 16),
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 14,
+                  style: TextStyle(
+                    fontSize: isLargeScreen ? 16 : 14,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
                   textAlign: TextAlign.center,
                 ),
+                if (isLargeScreen) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
             ),
           ),

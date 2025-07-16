@@ -1,36 +1,370 @@
+import 'dart:io';
+import 'dart:math';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-
-
 class SignUpService {
   static const String _signupDataKey = 'signup_data';
   static const String _signupStageKey = 'signup_stage';
+  static const String _tempIdKey = 'temp_id';
 
   // Signup stages
   static const String stageInitial = 'initial';
   static const String stageEmailSent = 'email_sent';
   static const String stageCompleted = 'completed';
 
-  /// Save signup data to shared preferences
+  // In-memory storage for web
+  static String? _webTempId;
+  static Map<String, String> _webSignupData = {};
+  static String _webSignupStage = stageInitial;
+
+  // Platform check
+  bool get isWeb => kIsWeb;
+  bool get isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  /// Generate random temp ID for web users
+  String _generateTempId() {
+    final random = Random();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final randomNum = random.nextInt(999999);
+    return 'temp_${timestamp}_$randomNum';
+  }
+
+  /// Save signup data (platform-specific)
   Future<bool> saveSignupData(Map<String, String> userData) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userDataJson = jsonEncode(userData);
-
-      bool result = await prefs.setString(_signupDataKey, userDataJson);
-      print('📝 Signup data saved: $result');
-      return result;
+      if (isWeb) {
+        return await _saveSignupDataWeb(userData);
+      } else {
+        return await _saveSignupDataMobile(userData);
+      }
     } catch (e) {
       print('❌ Error saving signup data: $e');
       return false;
     }
   }
 
+  /// Save signup data for mobile (SharedPreferences)
+  Future<bool> _saveSignupDataMobile(Map<String, String> userData) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataJson = jsonEncode(userData);
+      bool result = await prefs.setString(_signupDataKey, userDataJson);
+      print('📝 Mobile signup data saved: $result');
+      return result;
+    } catch (e) {
+      print('❌ Error saving mobile signup data: $e');
+      return false;
+    }
+  }
+
+  /// Save signup data for web (Firestore temp storage)
+  Future<bool> _saveSignupDataWeb(Map<String, String> userData) async {
+    try {
+      // Generate temp ID if not exists
+      if (_webTempId == null) {
+        _webTempId = _generateTempId();
+      }
+
+      final firestore = FirebaseFirestore.instance;
+      final docRef = firestore.collection('temp_data').doc(_webTempId);
+
+      // Save to Firestore with auto-delete timestamp
+      await docRef.set({
+        'userData': userData,
+        'stage': _webSignupStage,
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(DateTime.now().add(Duration(days: 2))),
+      });
+
+      // Also store in memory for quick access
+      _webSignupData = Map.from(userData);
+
+      print('📝 Web signup data saved with temp ID: $_webTempId');
+      return true;
+    } catch (e) {
+      print('❌ Error saving web signup data: $e');
+      return false;
+    }
+  }
+
+  /// Load signup data (platform-specific)
+  Future<Map<String, String>> loadSignupData() async {
+    try {
+      if (isWeb) {
+        return await _loadSignupDataWeb();
+      } else {
+        return await _loadSignupDataMobile();
+      }
+    } catch (e) {
+      print('❌ Error loading signup data: $e');
+      return {};
+    }
+  }
+
+  /// Load signup data for mobile
+  Future<Map<String, String>> _loadSignupDataMobile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataJson = prefs.getString(_signupDataKey);
+
+      if (userDataJson != null) {
+        Map<String, dynamic> userData = jsonDecode(userDataJson);
+        Map<String, String> result = {};
+        userData.forEach((key, value) {
+          result[key] = value.toString();
+        });
+        print('📖 Mobile signup data loaded: ${result.keys.toList()}');
+        return result;
+      }
+
+      print('📖 No mobile signup data found');
+      return {};
+    } catch (e) {
+      print('❌ Error loading mobile signup data: $e');
+      return {};
+    }
+  }
+
+  /// Load signup data for web
+  Future<Map<String, String>> _loadSignupDataWeb() async {
+    try {
+      // First check memory
+      if (_webSignupData.isNotEmpty) {
+        print('📖 Web signup data loaded from memory: ${_webSignupData.keys.toList()}');
+        return _webSignupData;
+      }
+
+      // If memory is empty and we have temp ID, try to load from Firestore
+      if (_webTempId != null) {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore.collection('temp_data').doc(_webTempId);
+        final doc = await docRef.get();
+
+        if (doc.exists) {
+          final data = doc.data() as Map<String, dynamic>;
+          final userData = Map<String, String>.from(data['userData'] ?? {});
+          _webSignupData = userData;
+          _webSignupStage = data['stage'] ?? stageInitial;
+
+          print('📖 Web signup data loaded from Firestore: ${userData.keys.toList()}');
+          return userData;
+        }
+      }
+
+      print('📖 No web signup data found');
+      return {};
+    } catch (e) {
+      print('❌ Error loading web signup data: $e');
+      return {};
+    }
+  }
+
+  /// Clear signup data (platform-specific)
+  Future<bool> clearSignupData() async {
+    try {
+      if (isWeb) {
+        return await _clearSignupDataWeb();
+      } else {
+        return await _clearSignupDataMobile();
+      }
+    } catch (e) {
+      print('❌ Error clearing signup data: $e');
+      return false;
+    }
+  }
+
+  /// Clear signup data for mobile
+  Future<bool> _clearSignupDataMobile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      bool dataResult = await prefs.remove(_signupDataKey);
+      bool stageResult = await prefs.remove(_signupStageKey);
+      bool result = dataResult && stageResult;
+      print('🗑️ Mobile signup data cleared: $result');
+      return result;
+    } catch (e) {
+      print('❌ Error clearing mobile signup data: $e');
+      return false;
+    }
+  }
+
+  /// Clear signup data for web
+  Future<bool> _clearSignupDataWeb() async {
+    try {
+      // Clear memory
+      _webSignupData.clear();
+      _webSignupStage = stageInitial;
+
+      // Clear Firestore temp data
+      if (_webTempId != null) {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore.collection('temp_data').doc(_webTempId);
+        await docRef.delete();
+        _webTempId = null;
+      }
+
+      print('🗑️ Web signup data cleared');
+      return true;
+    } catch (e) {
+      print('❌ Error clearing web signup data: $e');
+      return false;
+    }
+  }
+
+  /// Set signup stage (platform-specific)
+  Future<bool> setSignupStage(String stage) async {
+    try {
+      if (isWeb) {
+        return await _setSignupStageWeb(stage);
+      } else {
+        return await _setSignupStageMobile(stage);
+      }
+    } catch (e) {
+      print('❌ Error setting signup stage: $e');
+      return false;
+    }
+  }
+
+  /// Set signup stage for mobile
+  Future<bool> _setSignupStageMobile(String stage) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      bool result = await prefs.setString(_signupStageKey, stage);
+      print('📊 Mobile signup stage set to: $stage, Result: $result');
+      return result;
+    } catch (e) {
+      print('❌ Error setting mobile signup stage: $e');
+      return false;
+    }
+  }
+
+  /// Set signup stage for web
+  Future<bool> _setSignupStageWeb(String stage) async {
+    try {
+      _webSignupStage = stage;
+
+      // Update in Firestore if temp ID exists
+      if (_webTempId != null) {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore.collection('temp_data').doc(_webTempId);
+        await docRef.update({'stage': stage});
+      }
+
+      print('📊 Web signup stage set to: $stage');
+      return true;
+    } catch (e) {
+      print('❌ Error setting web signup stage: $e');
+      return false;
+    }
+  }
+
+  /// Get current signup stage (platform-specific)
+  Future<String> getSignupStage() async {
+    try {
+      if (isWeb) {
+        return await _getSignupStageWeb();
+      } else {
+        return await _getSignupStageMobile();
+      }
+    } catch (e) {
+      print('❌ Error getting signup stage: $e');
+      return stageInitial;
+    }
+  }
+
+  /// Get signup stage for mobile
+  Future<String> _getSignupStageMobile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String stage = prefs.getString(_signupStageKey) ?? stageInitial;
+      print('📊 Mobile current signup stage: $stage');
+      return stage;
+    } catch (e) {
+      print('❌ Error getting mobile signup stage: $e');
+      return stageInitial;
+    }
+  }
+
+  /// Get signup stage for web
+  Future<String> _getSignupStageWeb() async {
+    try {
+      // First check memory
+      if (_webSignupStage != stageInitial) {
+        print('📊 Web current signup stage (memory): $_webSignupStage');
+        return _webSignupStage;
+      }
+
+      // If memory is empty and we have temp ID, try to load from Firestore
+      if (_webTempId != null) {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore.collection('temp_data').doc(_webTempId);
+        final doc = await docRef.get();
+
+        if (doc.exists) {
+          final data = doc.data() as Map<String, dynamic>;
+          _webSignupStage = data['stage'] ?? stageInitial;
+          print('📊 Web current signup stage (Firestore): $_webSignupStage');
+          return _webSignupStage;
+        }
+      }
+
+      print('📊 Web current signup stage (default): $stageInitial');
+      return stageInitial;
+    } catch (e) {
+      print('❌ Error getting web signup stage: $e');
+      return stageInitial;
+    }
+  }
+
+  /// Clean up expired temp data (call this periodically or on app start)
+  Future<void> cleanupExpiredTempData() async {
+    if (!isWeb) return; // Only for web
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final now = Timestamp.now();
+
+      final expiredDocs = await firestore
+          .collection('temp_data')
+          .where('expiresAt', isLessThan: now)
+          .get();
+
+      for (var doc in expiredDocs.docs) {
+        await doc.reference.delete();
+      }
+
+      print('🧹 Cleaned up ${expiredDocs.docs.length} expired temp data entries');
+    } catch (e) {
+      print('❌ Error cleaning up expired temp data: $e');
+    }
+  }
+
+  /// Initialize web temp ID (call this on app start for web)
+  Future<void> initializeWebTempId() async {
+    if (!isWeb) return;
+
+    try {
+      // Try to load existing temp data to restore session
+      final firestore = FirebaseFirestore.instance;
+
+      // Clean up expired data first
+      await cleanupExpiredTempData();
+
+      // For now, we'll generate a new temp ID each time
+      // In a real app, you might want to store this in browser storage
+      _webTempId = _generateTempId();
+
+      print('🔄 Web temp ID initialized: $_webTempId');
+    } catch (e) {
+      print('❌ Error initializing web temp ID: $e');
+    }
+  }
 
   String extractNameFromEmail(String email) {
     if (email.isEmpty) return '';
@@ -49,12 +383,6 @@ class SignUpService {
     return words.join(' ');
   }
 
-
-
-
-
-
-
   /// Checks if the current user is admin, saves priority to SharedPreferences.
   /// Call after successful login.
   Future<void> checkAndStoreAdminPriority() async {
@@ -62,7 +390,6 @@ class SignUpService {
     if (user == null) return;
 
     final String email = user.email!;
-    final prefs = await SharedPreferences.getInstance();
 
     try {
       final adminDoc = await FirebaseFirestore.instance
@@ -70,85 +397,31 @@ class SignUpService {
           .doc(email)
           .get();
 
-      if (adminDoc.exists) {
-        await prefs.setString('priority', 'admin');
-        print('✅ Admin user detected & saved in prefs');
+      if (isWeb) {
+        // For web, store in memory (you might want to use browser storage here)
+        if (adminDoc.exists) {
+          // Store in memory or implement browser storage
+          print('✅ Admin user detected (web)');
+        } else {
+          print('ℹ️ Not an admin (web)');
+        }
       } else {
+        // For mobile, use SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        if (adminDoc.exists) {
+          await prefs.setString('priority', 'admin');
+          print('✅ Admin user detected & saved in prefs');
+        } else {
+          await prefs.setString('priority', 'notadmin');
+          print('ℹ️ Not an admin, priority set to notadmin in prefs');
+        }
+      }
+    } catch (e) {
+      if (!isWeb) {
+        final prefs = await SharedPreferences.getInstance();
         await prefs.setString('priority', 'notadmin');
-        print('ℹ️ Not an admin, priority set to notadmin in prefs');
       }
-    } catch (e) {
-      await prefs.setString('priority', 'notadmin');
       print('❌ Error checking admin priority: $e');
-    }
-  }
-
-
-
-  /// Load signup data from shared preferences
-  Future<Map<String, String>> loadSignupData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userDataJson = prefs.getString(_signupDataKey);
-
-      if (userDataJson != null) {
-        Map<String, dynamic> userData = jsonDecode(userDataJson);
-        // Convert to Map<String, String>
-        Map<String, String> result = {};
-        userData.forEach((key, value) {
-          result[key] = value.toString();
-        });
-        print('📖 Signup data loaded: ${result.keys.toList()}');
-        return result;
-      }
-
-      print('📖 No signup data found');
-      return {};
-    } catch (e) {
-      print('❌ Error loading signup data: $e');
-      return {};
-    }
-  }
-
-  /// Clear signup data from shared preferences
-  Future<bool> clearSignupData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      bool dataResult = await prefs.remove(_signupDataKey);
-      bool stageResult = await prefs.remove(_signupStageKey);
-
-      bool result = dataResult && stageResult;
-      print('🗑️ Signup data cleared: $result');
-      return result;
-    } catch (e) {
-      print('❌ Error clearing signup data: $e');
-      return false;
-    }
-  }
-
-  /// Set signup stage
-  Future<bool> setSignupStage(String stage) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      bool result = await prefs.setString(_signupStageKey, stage);
-      print('📊 Signup stage set to: $stage, Result: $result');
-      return result;
-    } catch (e) {
-      print('❌ Error setting signup stage: $e');
-      return false;
-    }
-  }
-
-  /// Get current signup stage
-  Future<String> getSignupStage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      String stage = prefs.getString(_signupStageKey) ?? stageInitial;
-      print('📊 Current signup stage: $stage');
-      return stage;
-    } catch (e) {
-      print('❌ Error getting signup stage: $e');
-      return stageInitial;
     }
   }
 
@@ -197,10 +470,6 @@ class SignUpService {
       return false;
     }
   }
-
-
-
-
 
   /// Check if email is verified using Firebase Auth
   Future<bool> checkEmailVerification() async {
@@ -303,7 +572,6 @@ class SignUpService {
   }
 
   /// Resend email verification
-  /// Resend email verification
   Future<Map<String, dynamic>> resendEmailVerification() async {
     try {
       User? user = FirebaseAuth.instance.currentUser;
@@ -337,14 +605,6 @@ class SignUpService {
       };
     }
   }
-
-
-
-
-
-
-
-
 
   /// Validate user input data
   Map<String, String?> validateSignupData(Map<String, String> data) {
@@ -388,10 +648,6 @@ class SignUpService {
     return errors;
   }
 
-
-
-
-  /// Simulate sending verification email (legacy method - kept for backward compatibility)
   /// Send Firebase email verification to current user
   Future<Map<String, dynamic>> sendVerificationEmail(String email) async {
     try {
@@ -439,10 +695,6 @@ class SignUpService {
     }
   }
 
-
-
-
-
   /// Get formatted user data for display
   Map<String, String> getFormattedUserData(Map<String, String> rawData) {
     return {
@@ -458,6 +710,7 @@ class SignUpService {
   /// Debug method to print current state
   Future<void> debugPrintState() async {
     print('🔍 === SIGNUP SERVICE DEBUG STATE ===');
+    print('📱 Platform: ${isWeb ? 'Web' : 'Mobile'}');
     String stage = await getSignupStage();
     Map<String, String> data = await loadSignupData();
     bool hasPending = await hasPendingSignup();
@@ -467,14 +720,19 @@ class SignUpService {
     print('📝 Stored Data Keys: ${data.keys.toList()}');
     print('⏳ Has Pending: $hasPending');
     print('✅ Email Verified: $isVerified');
+    if (isWeb) {
+      print('🌐 Web Temp ID: $_webTempId');
+    }
     print('🔍 ================================');
   }
 
-
-
   Future<void> updateFCMToken(String email) async {
+    if (!isMobile) {
+      print('ℹ️ Skipping FCM token update on non-mobile platform');
+      return;
+    }
+
     try {
-      // Get FCM token
       String? fcmToken = await FirebaseMessaging.instance.getToken();
 
       if (fcmToken == null) {
@@ -484,7 +742,6 @@ class SignUpService {
 
       print('📱 FCM Token obtained: ${fcmToken.substring(0, 20)}...');
 
-      // Update user document with FCM token
       final firestore = FirebaseFirestore.instance;
       final docRef = firestore.collection('users').doc(email);
 
@@ -497,7 +754,7 @@ class SignUpService {
     } catch (e) {
       print('❌ Error updating FCM token: $e');
 
-      // If document doesn't exist, create it with FCM token
+      // Attempt to set document if update fails (e.g., doc doesn't exist)
       try {
         String? fcmToken = await FirebaseMessaging.instance.getToken();
         if (fcmToken != null) {
@@ -517,12 +774,15 @@ class SignUpService {
     }
   }
 
-  /// Listen for FCM token refresh and update Firestore
   void setupFCMTokenRefreshListener() {
+    if (!isMobile) {
+      print('ℹ️ Skipping FCM token refresh listener on non-mobile platform');
+      return;
+    }
+
     FirebaseMessaging.instance.onTokenRefresh.listen((String newToken) async {
       print('📱 FCM Token refreshed: ${newToken.substring(0, 20)}...');
 
-      // Get current user email
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && user.email != null) {
         await updateFCMToken(user.email!);
@@ -540,8 +800,11 @@ class SignUpService {
     // Extract name from email automatically
     String autoGeneratedName = extractNameFromEmail(email);
 
-    // Get FCM token
-    String? fcmToken = await FirebaseMessaging.instance.getToken();
+    // Get FCM token (only for mobile)
+    String? fcmToken;
+    if (isMobile) {
+      fcmToken = await FirebaseMessaging.instance.getToken();
+    }
 
     final docRef = firestore.collection('users').doc(email);
     Map<String, dynamic> userDoc = {
@@ -552,9 +815,10 @@ class SignUpService {
       'createdAt': FieldValue.serverTimestamp(),
       'userType': 'normal',
       'emailVerified': true,
+      'platform': isWeb ? 'web' : 'mobile',
     };
 
-    // Add FCM token if available
+    // Add FCM token if available (mobile only)
     if (fcmToken != null) {
       userDoc['fcmToken'] = fcmToken;
       userDoc['tokenUpdatedAt'] = FieldValue.serverTimestamp();
@@ -568,9 +832,20 @@ class SignUpService {
     }
   }
 
-  // Update the signInWithEmail method to update FCM token
   Future<Map<String, dynamic>> signInWithEmail(String email, String password) async {
     try {
+      // First check if user exists in either users or admins collection
+      final firestore = FirebaseFirestore.instance;
+      final userDoc = await firestore.collection('users').doc(email).get();
+      final adminDoc = await firestore.collection('admins').doc(email).get();
+
+      if (!userDoc.exists && !adminDoc.exists) {
+        return {
+          'success': false,
+          'message': 'User doesn\'t exist. Please sign up first.',
+        };
+      }
+
       UserCredential userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
@@ -584,8 +859,16 @@ class SignUpService {
 
       // Check admin status first
       await checkAndStoreAdminPriority();
-      final prefs = await SharedPreferences.getInstance();
-      bool isAdmin = prefs.getString('priority') == 'admin';
+
+      // For mobile, check SharedPreferences for admin status
+      bool isAdmin = false;
+      if (!isWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        isAdmin = prefs.getString('priority') == 'admin';
+      } else {
+        // For web, use the adminDoc we already fetched
+        isAdmin = adminDoc.exists;
+      }
 
       if (!(user?.emailVerified ?? false)) {
         // DON'T sign out - keep user logged in for verification
@@ -596,8 +879,10 @@ class SignUpService {
         };
       }
 
-      // Update FCM token on successful login
-      await updateFCMToken(email);
+      // Update FCM token on successful login (mobile only)
+      if (isMobile) {
+        await updateFCMToken(email);
+      }
 
       // Email is verified - check if admin for navigation
       if (isAdmin) {
@@ -616,9 +901,9 @@ class SignUpService {
       };
     } on FirebaseAuthException catch (e) {
       String msg = 'Login failed. Please try again.';
-      if (e.code == 'user-not-found') msg = 'No account found with this email.';
-      if (e.code == 'wrong-password') msg = 'Incorrect password.';
-      if (e.code == 'invalid-email') msg = 'Invalid email address.';
+      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-email') {
+        msg = 'Incorrect credentials. Please check your email and password.';
+      }
       return {
         'success': false,
         'message': msg,
@@ -645,6 +930,122 @@ class SignUpService {
     } catch (e) {
       print('❌ Error handling email verification completion: $e');
       return false;
+    }
+  }
+
+  /// Initialize the service (call this on app start)
+  Future<void> initialize() async {
+    if (isWeb) {
+      await initializeWebTempId();
+      await cleanupExpiredTempData();
+    } else {
+      setupFCMTokenRefreshListener();
+    }
+    print('🚀 SignUpService initialized for ${isWeb ? 'web' : 'mobile'}');
+  }
+
+  /// Get admin status (platform-specific)
+  Future<bool> getAdminStatus() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+
+      if (isWeb) {
+        // For web, check Firestore directly
+        final adminDoc = await FirebaseFirestore.instance
+            .collection('admins')
+            .doc(user.email!)
+            .get();
+        return adminDoc.exists;
+      } else {
+        // For mobile, check SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        return prefs.getString('priority') == 'admin';
+      }
+    } catch (e) {
+      print('❌ Error getting admin status: $e');
+      return false;
+    }
+  }
+
+  /// Set up Firestore security rules for temp_data collection
+  /// Add these rules to your Firestore security rules:
+  /*
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      // Existing rules...
+
+      // Temp data rules
+      match /temp_data/{tempId} {
+        allow read, write: if request.auth != null;
+        allow delete: if request.auth != null ||
+                     resource.data.expiresAt < request.time;
+      }
+    }
+  }
+  */
+
+  /// Cleanup method to be called periodically (e.g., via Cloud Functions)
+  static Future<void> cleanupExpiredTempDataBatch() async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final now = Timestamp.now();
+
+      final expiredQuery = firestore
+          .collection('temp_data')
+          .where('expiresAt', isLessThan: now)
+          .limit(500); // Process in batches
+
+      final expiredDocs = await expiredQuery.get();
+
+      if (expiredDocs.docs.isEmpty) {
+        print('🧹 No expired temp data to clean up');
+        return;
+      }
+
+      final batch = firestore.batch();
+      for (var doc in expiredDocs.docs) {
+        batch.delete(doc.reference);
+      }
+
+      await batch.commit();
+      print('🧹 Batch cleaned up ${expiredDocs.docs.length} expired temp data entries');
+    } catch (e) {
+      print('❌ Error in batch cleanup: $e');
+    }
+  }
+
+  /// Restore web session (call this when user returns to web app)
+  Future<bool> restoreWebSession() async {
+    if (!isWeb) return false;
+
+    try {
+      // Check if user is already logged in
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+
+      // Try to restore temp data if available
+      await loadSignupData();
+
+      print('🔄 Web session restored for user: ${user.email}');
+      return true;
+    } catch (e) {
+      print('❌ Error restoring web session: $e');
+      return false;
+    }
+  }
+
+  /// Enhanced error handling for web-specific issues
+  Future<void> handleWebStorageError(dynamic error) async {
+    print('❌ Web storage error: $error');
+
+    try {
+      // Try to reinitialize
+      await initializeWebTempId();
+      print('🔄 Web storage reinitialized after error');
+    } catch (e) {
+      print('❌ Failed to reinitialize web storage: $e');
     }
   }
 

@@ -18,6 +18,11 @@ class _AllUsersPageState extends State<AllUsersPage> {
   String _selectedFilter = 'all';
   DateTime _selectedMonth = DateTime.now();
 
+  bool get isWeb => MediaQuery.of(context).size.width > 800;
+  double get maxWidth => isWeb ? 1200 : double.infinity;
+
+
+
   @override
   void initState() {
     super.initState();
@@ -244,8 +249,8 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
   Widget _buildUserCard(Map<String, dynamic> user, String userEmail) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.only(bottom: isWeb ? 0 : 12),
+      padding: EdgeInsets.all(isWeb ? 20 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -266,62 +271,68 @@ class _AllUsersPageState extends State<AllUsersPage> {
             final isAlloted = snapshot.data ?? false;
             final vehicles = _parseVehicles(user['vehicle']);
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: isAlloted ? Colors.green.shade100 : Colors.grey.shade100,
-                      child: Icon(
-                        Icons.person,
-                        color: isAlloted ? Colors.green : Colors.grey,
-                        size: 24,
-                      ),
+            return IntrinsicHeight(
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: isWeb ? 28 : 24,
+                    backgroundColor: isAlloted ? Colors.green.shade100 : Colors.grey.shade100,
+                    child: Icon(
+                      Icons.person,
+                      color: isAlloted ? Colors.green : Colors.grey,
+                      size: isWeb ? 28 : 24,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            user['name'] ?? 'No Name',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
+                  ),
+                  SizedBox(width: isWeb ? 16 : 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min, // Important: minimizes column height
+                      children: [
+                        Text(
+                          user['name'] ?? 'No Name',
+                          style: TextStyle(
+                            fontSize: isWeb ? 18 : 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            userEmail,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isAlloted ? Colors.green.shade100 : Colors.red.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        isAlloted ? 'Alloted' : 'Unalloted',
-                        style: TextStyle(
-                          color: isAlloted ? Colors.green : Colors.red,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          userEmail,
+                          style: TextStyle(
+                            fontSize: isWeb ? 16 : 14,
+                            color: Colors.grey,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isWeb ? 12 : 8,
+                      vertical: isWeb ? 6 : 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isAlloted ? Colors.green.shade100 : Colors.red.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isAlloted ? 'Alloted' : 'Unalloted',
+                      style: TextStyle(
+                        color: isAlloted ? Colors.green : Colors.red,
+                        fontSize: isWeb ? 12 : 10,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             );
           },
         ),
@@ -329,56 +340,108 @@ class _AllUsersPageState extends State<AllUsersPage> {
     );
   }
 
+
   void _showUserBottomSheet(Map<String, dynamic> user, String userEmail) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
+    if (isWeb) {
+      // Use dialog for web instead of bottom sheet
+      showDialog(
+        context: context,
+        builder: (context) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: 800,
+            height: 600,
+            padding: const EdgeInsets.all(24),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Handle
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  height: 4,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D3748),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
                 ),
-                // Content
+                const SizedBox(height: 16),
                 Expanded(
                   child: SingleChildScrollView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.all(20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildUserDetailsSection(user, userEmail),
                         const SizedBox(height: 24),
                         _buildSlotDetailsSection(user, userEmail),
-
                       ],
                     ),
                   ),
                 ),
               ],
             ),
-          );
-        },
-      ),
-    );
+          ),
+        ),
+      );
+    } else {
+      // Keep existing bottom sheet for mobile
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  // Handle
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    height: 4,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Content
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildUserDetailsSection(user, userEmail),
+                          const SizedBox(height: 24),
+                          _buildSlotDetailsSection(user, userEmail),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    }
   }
+
 
   Widget _buildUserDetailsSection(Map<String, dynamic> user, String userEmail) {
     final vehicles = _parseVehicles(user['vehicle']);
@@ -665,132 +728,143 @@ class _AllUsersPageState extends State<AllUsersPage> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: Column(
-        children: [
-          // Search and Filter Section
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Column(
-              children: [
-                // Search Bar
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search users by name, email, phone, or vehicle...',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: Colors.grey.shade100,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+      body: Center(
+        child: Container(
+          width: maxWidth,
+          child: Column(
+            children: [
+              // Search and Filter Section
+              Container(
+                padding: EdgeInsets.all(isWeb ? 24 : 16),
+                color: Colors.white,
+                child: Column(
+                  children: [
+                    // Search Bar - constrain width on web
+                    Container(
+                      width: isWeb ? 600 : double.infinity,
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search users by name, email, phone, or vehicle...',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Filter Chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip('All', 'all'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('Alloted', 'alloted'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('Unalloted', 'unalloted'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Users List
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _firestore.collection('users').snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Column(
+                    const SizedBox(height: 16),
+                    // Filter Chips - center on web
+                    isWeb
+                        ? Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.error, size: 64, color: Colors.red.shade300),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error loading users',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.red.shade600,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        _buildFilterChip('All', 'all'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('Alloted', 'alloted'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('Unalloted', 'unalloted'),
                       ],
+                    )
+                        : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip('All', 'all'),
+                          const SizedBox(width: 8),
+                          _buildFilterChip('Alloted', 'alloted'),
+                          const SizedBox(width: 8),
+                          _buildFilterChip('Unalloted', 'unalloted'),
+                        ],
+                      ),
                     ),
-                  );
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C5CE7)),
-                    ),
-                  );
-                }
-
-                final users = snapshot.data?.docs ?? [];
-
-                return FutureBuilder<List<QueryDocumentSnapshot>>(
-                  future: _filterUsers(users),
-                  builder: (context, filterSnapshot) {
-                    if (filterSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C5CE7)),
-                        ),
-                      );
-                    }
-
-                    final filteredUsers = filterSnapshot.data ?? [];
-
-                    if (filteredUsers.isEmpty) {
+                  ],
+                ),
+              ),
+              // Users List - use GridView for web
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _firestore.collection('users').snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
                       return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchQuery.isEmpty ? 'No users found' : 'No users match your search',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+                        child: Text('Error: ${snapshot.error}'),
                       );
                     }
 
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: filteredUsers.length,
-                      itemBuilder: (context, index) {
-                        final doc = filteredUsers[index];
-                        final userData = doc.data() as Map<String, dynamic>;
-                        return _buildUserCard(userData, doc.id);
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    }
+
+                    final users = snapshot.data?.docs ?? [];
+
+                    if (users.isEmpty) {
+                      return const Center(
+                        child: Text('No users found'),
+                      );
+                    }
+
+                    return FutureBuilder<List<QueryDocumentSnapshot>>(
+                      future: _filterUsers(users),
+                      builder: (context, filterSnapshot) {
+                        if (filterSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        final filteredUsers = filterSnapshot.data ?? [];
+
+                        if (filteredUsers.isEmpty) {
+                          return const Center(
+                            child: Text('No users match your search criteria'),
+                          );
+                        }
+
+                        // Replace ListView.builder with responsive grid/list
+                        return isWeb
+                            ? GridView.builder(
+                          padding: const EdgeInsets.all(24),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: MediaQuery.of(context).size.width > 1200 ? 3 : 2,
+                            childAspectRatio: 4,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                          ),
+                          itemCount: filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            final doc = filteredUsers[index];
+                            final userData = doc.data() as Map<String, dynamic>;
+                            return _buildUserCard(userData, doc.id);
+                          },
+                        )
+                            : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            final doc = filteredUsers[index];
+                            final userData = doc.data() as Map<String, dynamic>;
+                            return _buildUserCard(userData, doc.id);
+                          },
+                        );
                       },
                     );
                   },
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+
 
   Future<List<QueryDocumentSnapshot>> _filterUsers(List<QueryDocumentSnapshot> users) async {
     List<QueryDocumentSnapshot> filteredUsers = [];

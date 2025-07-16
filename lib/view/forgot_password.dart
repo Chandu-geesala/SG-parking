@@ -83,9 +83,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             children: <Widget>[
               const SizedBox(height: 60),
               Image.asset(
-                'assets/logo.png',
-                width: 150,
-                height: 150,
+                'assets/txt.png',
+                width: 240,
+                height: 130,
               ),
               const SizedBox(height: 50),
               Container(

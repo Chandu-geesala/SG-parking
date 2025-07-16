@@ -1,1 +1,39 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"park-sg","appId":"1:749550140449:android:07b4de11c90bba990ef760","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"park-sg","configurations":{"android":"1:749550140449:android:07b4de11c90bba990ef760","ios":"1:749550140449:ios:4c117438ea4bde4a0ef760","macos":"1:749550140449:ios:4c117438ea4bde4a0ef760","web":"1:749550140449:web:7e1f4b2cc12f02b60ef760","windows":"1:749550140449:web:57b0df404c6591180ef760"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "park-sg",
+          "appId": "1:749550140449:android:07b4de11c90bba990ef760",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "park-sg",
+          "configurations": {
+            "android": "1:749550140449:android:07b4de11c90bba990ef760",
+            "ios": "1:749550140449:ios:4c117438ea4bde4a0ef760",
+            "macos": "1:749550140449:ios:4c117438ea4bde4a0ef760",
+            "web": "1:749550140449:web:7e1f4b2cc12f02b60ef760",
+            "windows": "1:749550140449:web:57b0df404c6591180ef760"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

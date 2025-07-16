@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 import '../view/splashScreen/my_splash_screen.dart';
@@ -11,8 +12,6 @@ class BookingBackend {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Your notification API endpoint
-  static const String NOTIFICATION_API_URL = 'https://chandugeesala0-parksgnotify.hf.space/send-notification';
 
   // Helper method to get current user
   User? get currentUser => _auth.currentUser;
@@ -116,123 +115,9 @@ class BookingBackend {
     }
   }
 
-  // Get associated users for a specific slot (users who might be interested in this slot)
-  Future<List<String>> getAssociatedUsersForSlot(String slotId) async {
-    try {
-      List<String> associatedUsers = [];
+  // Add this to your BookingBackend class
 
-      // Get users who have booked this slot in the past (last 30 days)
-      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
-
-      for (int i = 0; i < 30; i++) {
-        final date = DateTime.now().subtract(Duration(days: i));
-        final dateStr = _formatDateForDocId(date);
-
-        final slotBookingQuery = await _firestore
-            .collection('Bookings')
-            .doc(dateStr)
-            .collection('BookedToday')
-            .doc(slotId)
-            .get();
-
-        if (slotBookingQuery.exists) {
-          final bookedBy = slotBookingQuery.data()?['bookedBy'] as String?;
-          if (bookedBy != null && !associatedUsers.contains(bookedBy)) {
-            associatedUsers.add(bookedBy);
-          }
-        }
-      }
-
-      // Also get users who have tried to book this slot but couldn't (from booking attempts collection if you have one)
-      // You can add more logic here based on your app's requirements
-
-      // Remove current user from the list (they're cancelling, no need to notify them)
-      final currentUserEmail = currentUser?.email;
-      if (currentUserEmail != null) {
-        associatedUsers.remove(currentUserEmail);
-      }
-
-      return associatedUsers;
-    } catch (e) {
-      print('Error getting associated users: $e');
-      return [];
-    }
-  }
-
-  // Get FCM tokens for list of user emails
-  Future<List<String>> getFCMTokensForUsers(List<String> userEmails) async {
-    try {
-      List<String> fcmTokens = [];
-
-      for (String email in userEmails) {
-        // Try to get from allowed_persons collection first
-        DocumentSnapshot userDoc = await _firestore
-            .collection('allowed_persons')
-            .doc(email)
-            .get();
-
-        // If not found in allowed_persons, try admins collection
-        if (!userDoc.exists) {
-          userDoc = await _firestore
-              .collection('admins')
-              .doc(email)
-              .get();
-        }
-
-        if (userDoc.exists) {
-          final userData = userDoc.data() as Map<String, dynamic>?;
-          final fcmToken = userData?['fcmToken'] as String?;
-
-          if (fcmToken != null && fcmToken.isNotEmpty) {
-            fcmTokens.add(fcmToken);
-          }
-        }
-      }
-
-      return fcmTokens;
-    } catch (e) {
-      print('Error getting FCM tokens: $e');
-      return [];
-    }
-  }
-
-  // Send notification via API
-  Future<bool> sendCancellationNotification({
-    required List<String> fcmTokens,
-    required String slotNo,
-  }) async {
-    try {
-      if (fcmTokens.isEmpty) {
-        print('No FCM tokens to send notification to');
-        return false;
-      }
-
-      final response = await http.post(
-        Uri.parse(NOTIFICATION_API_URL),
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'fcm_tokens': fcmTokens,
-          'slot_no': slotNo,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        print('Notification sent successfully: ${responseData['successful_sends']} out of ${responseData['total_tokens']}');
-        return true;
-      } else {
-        print('Failed to send notification: ${response.statusCode} - ${response.body}');
-        return false;
-      }
-    } catch (e) {
-      print('Error sending notification: $e');
-      return false;
-    }
-  }
-
-  // Updated Cancel booking for tomorrow with notification
+// Simplified cancel booking method - API handles all the notification logic
   Future<Map<String, dynamic>> cancelBookingForTomorrow({
     required String slotId,
     required String userEmail,
@@ -271,29 +156,11 @@ class BookingBackend {
         };
       }
 
-      // Get associated users for this slot before deleting the booking
-      final associatedUsers = await getAssociatedUsersForSlot(slotId);
-
-      // Delete the booking
+      // Delete the booking first
       await slotRef.delete();
 
-      // Send notifications to associated users
-      if (associatedUsers.isNotEmpty) {
-        final fcmTokens = await getFCMTokensForUsers(associatedUsers);
-
-        if (fcmTokens.isNotEmpty) {
-          final notificationSent = await sendCancellationNotification(
-            fcmTokens: fcmTokens,
-            slotNo: slotId,
-          );
-
-          if (notificationSent) {
-            print('Notifications sent to ${fcmTokens.length} users');
-          } else {
-            print('Failed to send notifications');
-          }
-        }
-      }
+      // Now notify the API about the cancellation - fire and forget
+      _notifySlotAvailable(slotId, userEmail);
 
       return {
         'success': true,
@@ -308,58 +175,105 @@ class BookingBackend {
     }
   }
 
-  // Alternative method to get interested users based on user preferences/history
-  Future<List<String>> getInterestedUsersForSlot(String slotId) async {
+// Private method to notify API about slot availability
+  void _notifySlotAvailable(String slotId, String cancelledBy) async {
     try {
-      List<String> interestedUsers = [];
+      final response = await http.post(
+        Uri.parse('https://chandugeesala0-parksgnotify.hf.space/notify-slot-available'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'slot_id': slotId,
+          'cancelled_by': cancelledBy,
+        }),
+      );
 
-      // Get all users who have booking history
-      final allowedPersonsQuery = await _firestore
-          .collection('allowed_persons')
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        print('Notification API response: ${responseData['message']}');
+        print('Notified users: ${responseData['successful_sends']}');
+      } else {
+        print('Failed to notify API: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error calling notification API: $e');
+      // Don't fail the cancellation if notification fails
+    }
+  }
+
+
+  // Get all available slots for today
+  Future<List<Map<String, dynamic>>> getAvailableSlotsForToday() async {
+    try {
+      final todayDateStr = _formatDateForDocId(todayDate);
+
+      // Get all slots from the Slots collection
+      final slotsQuery = await _firestore
+          .collection('Slots')
           .get();
 
-      for (var userDoc in allowedPersonsQuery.docs) {
-        final userEmail = userDoc.id;
+      // Get all booked slots for today
+      final bookedSlotsQuery = await _firestore
+          .collection('Bookings')
+          .doc(todayDateStr)
+          .collection('BookedToday')
+          .get();
 
-        // Check if user has booked this slot before or similar time slots
-        bool hasBookedThisSlot = false;
+      // Create a set of booked slot IDs for quick lookup
+      final bookedSlotIds = bookedSlotsQuery.docs.map((doc) => doc.id).toSet();
 
-        // Check last 30 days
-        for (int i = 0; i < 30; i++) {
-          final date = DateTime.now().subtract(Duration(days: i));
-          final dateStr = _formatDateForDocId(date);
+      // Filter available slots (slots that are not booked)
+      List<Map<String, dynamic>> availableSlots = [];
 
-          final userBookingQuery = await _firestore
-              .collection('Bookings')
-              .doc(dateStr)
-              .collection('BookedToday')
-              .where('bookedBy', isEqualTo: userEmail)
-              .get();
+      for (var slotDoc in slotsQuery.docs) {
+        String slotId = slotDoc.id;
 
-          if (userBookingQuery.docs.isNotEmpty) {
-            // Check if any of their bookings were for this slot
-            for (var booking in userBookingQuery.docs) {
-              if (booking.id == slotId) {
-                hasBookedThisSlot = true;
-                break;
-              }
-            }
-          }
+        // If slot is not booked today, it's available
+        if (!bookedSlotIds.contains(slotId)) {
+          Map<String, dynamic> slotData = slotDoc.data() as Map<String, dynamic>;
 
-          if (hasBookedThisSlot) break;
-        }
-
-        if (hasBookedThisSlot && userEmail != currentUser?.email) {
-          interestedUsers.add(userEmail);
+          availableSlots.add({
+            'slotId': slotId,
+            'slotData': slotData,
+            'vehicleType': slotData['vehicleType'] ?? 'BIKE',
+            'slotPriority': slotData['slotPriority'] ?? 'permanent',
+            'alloted_to': (slotData['alloted_to'] as List?)?.map((item) => item['name'] ?? 'Unknown').toList() ?? [],
+            'VehicleCompatibility': slotData['VehicleCompatibility'], // For CAR type slots
+          });
         }
       }
 
-      return interestedUsers;
+      // Sort by slot ID for better organization
+      availableSlots.sort((a, b) => a['slotId'].compareTo(b['slotId']));
+
+      return availableSlots;
+
     } catch (e) {
-      print('Error getting interested users: $e');
+      print('Error getting available slots for today: $e');
       return [];
     }
   }
+
+// Optional: Get available slots by vehicle type for today
+  Future<List<Map<String, dynamic>>> getAvailableSlotsByVehicleType(String vehicleType) async {
+    try {
+      final allAvailableSlots = await getAvailableSlotsForToday();
+
+      // Filter by vehicle type
+      return allAvailableSlots.where((slot) {
+        final slotVehicleType = slot['slotData']['vehicleType']?.toString().toUpperCase() ?? 'BIKE';
+        return slotVehicleType == vehicleType.toUpperCase();
+      }).toList();
+
+    } catch (e) {
+      print('Error getting available slots by vehicle type: $e');
+      return [];
+    }
+  }
+
+
+
 
   // Get user's booking for today
   Future<Map<String, dynamic>?> getTodaysBooking(String userEmail) async {
@@ -505,9 +419,13 @@ class BookingBackend {
     );
   }
 
+
   Future<void> signOut(BuildContext context) async {
     try {
       await _auth.signOut();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear(); // This clears all stored preferences
 
       // Navigate to MySplashScreen and clear the navigation stack
       Navigator.pushAndRemoveUntil(
@@ -521,6 +439,9 @@ class BookingBackend {
       throw e;
     }
   }
+
+
+
 
   Future<Map<String, dynamic>?> getProfileData() async {
     final user = currentUser;

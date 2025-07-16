@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:park_sg/view/splashScreen/my_splash_screen.dart';
 import '../../viewModel/authService.dart';
-import '../home.dart';
+import 'auth_screen.dart';
+
 
 class VerifyEmailPage extends StatefulWidget {
   final String email;
@@ -42,7 +45,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
         _showMessage('Email verified! Account created successfully!');
         if (mounted) {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => HomeScreen()),
+            MaterialPageRoute(builder: (_) => MysplashScreen()),
                 (route) => false,
           );
         }
@@ -58,9 +61,58 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
   }
 
   Future<void> _cancelSignUp() async {
-    await _signUpService.clearSignupData();
-    if (mounted) {
-      Navigator.of(context).pop(false);
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // 1. Clear all signup data from storage
+      await _signUpService.clearSignupData();
+
+      // 2. Sign out from Firebase to remove the unverified user session
+      await FirebaseAuth.instance.signOut();
+
+      // 3. Cancel the email verification monitoring
+      emailVerificationSubscription?.cancel();
+
+      // 4. Optionally delete the unverified Firebase user account
+      // (This is more thorough but optional)
+      /*
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null && !currentUser.emailVerified) {
+      await currentUser.delete();
+    }
+    */
+
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+      }
+
+      // 5. Navigate to landing page and clear entire navigation stack
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => MysplashScreen()),
+              (route) => false,
+        );
+      }
+
+      // Show success message
+      _showMessage('Signup cancelled successfully');
+
+    } catch (e) {
+      // Close loading dialog if still open
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      print('❌ Error during signup cancellation: $e');
+      _showMessage('Error cancelling signup. Please try again.');
     }
   }
 

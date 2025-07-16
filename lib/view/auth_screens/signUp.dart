@@ -26,6 +26,21 @@ class _SignUpPageState extends State<SignUpPage> {
 
   final List<TextEditingController> vehicleControllers = [TextEditingController()];
 
+  final ScrollController _scrollController = ScrollController();
+
+  final FocusNode _emailFocusNode = FocusNode();
+  final FocusNode _phoneFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+  final FocusNode _confirmFocusNode = FocusNode();
+
+  final List<FocusNode> vehicleFocusNodes = [FocusNode()];
+
+
+
+
+
+
+
   bool isLoadingSignUp = false;
 
   bool? isVerified;
@@ -55,8 +70,38 @@ class _SignUpPageState extends State<SignUpPage> {
       controller.dispose();
     }
     emailVerificationSubscription?.cancel();
+    _scrollController.dispose();
+    _emailFocusNode.dispose();
+    _phoneFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmFocusNode.dispose();
+
+    for (final node in vehicleFocusNodes) {
+      node.dispose();
+    }
+
+
     super.dispose();
   }
+
+
+  void _scrollToFocusedInput(FocusNode node) {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (_scrollController.hasClients) {
+        Scrollable.ensureVisible(
+          node.context!,
+          duration: const Duration(milliseconds: 400),
+          alignment: 0.2, // Adjust as needed: 0.0 = top, 1.0 = bottom
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
+
+
+
+
 
   /// Initialize signup state - check for pending signup
   Future<void> _initializeSignupState() async {
@@ -309,18 +354,30 @@ class _SignUpPageState extends State<SignUpPage> {
       isEmailSent = false;
       isRestoredFromPending = false;
     });
+
+    // Clear main form fields
     emailController.clear();
     passwordController.clear();
     confirmPasswordController.clear();
     phoneController.clear();
-    for (final c in vehicleControllers) {
-      c.clear();
+
+    // Dispose and clear vehicle text controllers
+    for (final controller in vehicleControllers) {
+      controller.dispose();
     }
-    // Reset vehicles to one empty controller
     vehicleControllers
       ..clear()
       ..add(TextEditingController());
+
+    // Dispose and clear associated FocusNodes
+    for (final node in vehicleFocusNodes) {
+      node.dispose();
+    }
+    vehicleFocusNodes
+      ..clear()
+      ..add(FocusNode());
   }
+
 
 
 
@@ -348,206 +405,262 @@ class _SignUpPageState extends State<SignUpPage> {
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
+    final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final bool isKeyboardOpen = keyboardHeight > 0;
+    final Size screenSize = MediaQuery.of(context).size;
+
     return Scaffold(
-      body: Container(
-        width: MediaQuery.of(context).size.width,
-        height: MediaQuery.of(context).size.height,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.orange.shade400,
-              Colors.white,
-              Colors.green.shade400,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-
-              Image.asset(
-                'assets/txt.png',
-                width: 240,
-                height: 150,
+      backgroundColor: Colors.orange.shade400,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: [
+          // Gradient background
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.orange.shade400,
+                  Colors.white,
+                  Colors.green.shade400,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              const SizedBox(height: 10),
+            ),
+          ),
 
-              if (!isEmailSent) ...[
-                // Sign up form
-                Form(
-                  key: _formKey,
-                  autovalidateMode: AutovalidateMode.disabled,
-                  child: Column(
-                    children: [
-
-                      _buildTextFieldContainer(
-                        controller: emailController,
-                        hintText: 'Email',
-                        icon: Icons.email,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Email cannot be empty';
-                          }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                            return 'Enter a valid email';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextFieldContainer(
-                        controller: phoneController,
-                        hintText: 'Phone',
-                        icon: Icons.phone,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Phone number cannot be empty';
-                          }
-                          if (value.length < 10) {
-                            return 'Enter a valid phone number';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-
-                          ListView.builder(
-                            shrinkWrap: true,
-                            physics: NeverScrollableScrollPhysics(),
-                            itemCount: vehicleControllers.length,
-                            itemBuilder: (context, index) {
-                              return Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildTextFieldContainer(
-                                      controller: vehicleControllers[index],
-                                      hintText: 'Vehicle Number',
-                                      icon: Icons.directions_car,
-                                      validator: (value) =>
-                                      (value == null || value.isEmpty)
-                                          ? 'Vehicle number cannot be empty'
-                                          : null,
-                                    ),
-                                  ),
-                                  if (vehicleControllers.length > 1)
-                                    IconButton(
-                                      icon: Icon(Icons.remove_circle, color: Colors.red),
-                                      onPressed: () {
-                                        setState(() {
-                                          vehicleControllers.removeAt(index);
-                                        });
-                                      },
-                                    ),
-                                ],
-                              );
-                            },
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 8),
-                            child: OutlinedButton.icon(
-                              icon: Icon(Icons.add, color: Colors.green),
-                              label: Text("Add Vehicle"),
-                              onPressed: () {
-                                setState(() {
-                                  vehicleControllers.add(TextEditingController());
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-
-
-                      const SizedBox(height: 20),
-                      _buildTextFieldContainer(
-                        controller: passwordController,
-                        hintText: 'Password',
-                        icon: Icons.lock,
-                        obscureText: true,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Password cannot be empty';
-                          }
-                          if (value.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextFieldContainer(
-                        controller: confirmPasswordController,
-                        hintText: 'Confirm Password',
-                        icon: Icons.lock,
-                        obscureText: true,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please confirm your password';
-                          }
-                          if (value != passwordController.text) {
-                            return 'Passwords do not match';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 30),
-                      GestureDetector(
-                        onTap: isLoadingSignUp ? null : _signUp,
-                        child: _buildSignUpButton(
-                          isLoadingSignUp ? "Processing..." : "Verify & Sign Up",
-                          isEnabled: !isLoadingSignUp,
+          // Foreground content
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.only(
+                    top: isKeyboardOpen ? 30 : 0,
+                    bottom: isKeyboardOpen ? keyboardHeight : 40,
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo
+                        Image.asset(
+                          'assets/txt.png',
+                          width: 240,
+                          height: 120,
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ] ,
+                        const SizedBox(height: 10),
 
-              const SizedBox(height: 30),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  const Text(
-                    'Already a registered user?',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(width: 10),
+                        if (!isEmailSent) ...[
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                _buildTextFieldContainer(
+                                  controller: emailController,
+                                  hintText: 'Email',
+                                  icon: Icons.email,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Email cannot be empty';
+                                    }
+                                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                                        .hasMatch(value)) {
+                                      return 'Enter a valid email';
+                                    }
+                                    return null;
+                                  },
+                                  focusNode: _emailFocusNode,
+                                ),
+                                const SizedBox(height: 20),
+                                _buildTextFieldContainer(
+                                  controller: phoneController,
+                                  hintText: 'Phone',
+                                  icon: Icons.phone,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Phone number cannot be empty';
+                                    }
+                                    if (value.length < 10) {
+                                      return 'Enter a valid phone number';
+                                    }
+                                    return null;
+                                  },
+                                  focusNode: _phoneFocusNode,
+                                ),
+                                const SizedBox(height: 20),
+                                _buildVehicleList(),
+                                const SizedBox(height: 20),
+                                _buildTextFieldContainer(
+                                  controller: passwordController,
+                                  hintText: 'Password',
+                                  icon: Icons.lock,
+                                  obscureText: true,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Password cannot be empty';
+                                    }
+                                    if (value.length < 6) {
+                                      return 'Password must be at least 6 characters';
+                                    }
+                                    return null;
+                                  },
+                                  focusNode: _passwordFocusNode,
+                                ),
+                                const SizedBox(height: 20),
+                                _buildTextFieldContainer(
+                                  controller: confirmPasswordController,
+                                  hintText: 'Confirm Password',
+                                  icon: Icons.lock,
+                                  obscureText: true,
 
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (context) => LandingPage()),
-                      );
-                    },
-                    child: const Text(
-                      'Log In here',
-                      style: TextStyle(
-                        color: Colors.orange,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please confirm your password';
+                                    }
+                                    if (value != passwordController.text) {
+                                      return 'Passwords do not match';
+                                    }
+                                    return null;
+                                  },
+                                  focusNode: _confirmFocusNode,
+                                ),
+                                const SizedBox(height: 30),
+                                GestureDetector(
+                                  onTap: isLoadingSignUp ? null : _signUp,
+                                  child: _buildSignUpButton(
+                                    isLoadingSignUp ? "Processing..." : "Verify & Sign Up",
+                                    isEnabled: !isLoadingSignUp,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        ],
+
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const Text(
+                              'Already a registered user?',
+                              style: TextStyle(fontSize: 16),
+                            ),
+                            const SizedBox(width: 10),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const LandingPage(),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Log In here',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 30),
+                      ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 30),
-            ],
+                );
+              },
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
+
+
+
+
+
+  Widget _buildVehicleList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: vehicleControllers.length,
+          itemBuilder: (context, index) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 15),
+              child: Center(
+                child: Container(
+                  // Use the same width logic as your text fields
+                  width: MediaQuery.of(context).size.width > 600
+                      ? 400 // Fixed width for web/desktop
+                      : MediaQuery.of(context).size.width - 100, // Responsive for mobile
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextFieldContainer(
+                          controller: vehicleControllers[index],
+                          hintText: 'Vehicle Number',
+                          icon: Icons.directions_car,
+                          focusNode: vehicleFocusNodes[index],
+                          validator: (value) =>
+                          (value == null || value.isEmpty)
+                              ? 'Vehicle number cannot be empty'
+                              : null,
+                        ),
+                      ),
+                      if (vehicleControllers.length > 1 && index != 0)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: IconButton(
+                            icon: const Icon(Icons.remove_circle, color: Colors.red),
+                            onPressed: () {
+                              setState(() {
+                                vehicleControllers.removeAt(index);
+                                vehicleFocusNodes.removeAt(index);
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        Center(
+          child: Container(
+            width: MediaQuery.of(context).size.width > 600 ? 220 : MediaQuery.of(context).size.width - 170,
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.add, color: Colors.green),
+              label: const Text("Add Vehicle"),
+              onPressed: () {
+                setState(() {
+                  vehicleControllers.add(TextEditingController());
+                  vehicleFocusNodes.add(FocusNode());
+                });
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
 
 
@@ -587,44 +700,60 @@ class _SignUpPageState extends State<SignUpPage> {
     );
   }
 
+// Replace your existing _buildTextFieldContainer method with this improved version:
+
   Widget _buildTextFieldContainer({
     required TextEditingController controller,
     required String hintText,
     required IconData icon,
     required String? Function(String?) validator,
+    required FocusNode focusNode,
     bool obscureText = false,
   }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 50),
-      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 1),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(40),
-        border: Border.all(
-          color: Colors.black,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.5),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
+    return Center(
+      child: Container(
+        // Set maximum width for web and responsive width for mobile
+        width: MediaQuery.of(context).size.width > 600
+            ? 400 // Fixed width for web/desktop
+            : MediaQuery.of(context).size.width - 100, // Responsive for mobile
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 1),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(
+            color: Colors.black,
+            width: 1,
           ),
-        ],
-      ),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        cursorColor: const Color.fromRGBO(251, 126, 24, 1.0),
-        style: const TextStyle(color: Colors.black),
-        decoration: InputDecoration(
-          border: InputBorder.none,
-          hintText: hintText,
-          icon: Icon(icon),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.5),
+              spreadRadius: 1,
+              blurRadius: 5,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-        validator: validator,
+        child: TextFormField(
+          controller: controller,
+          obscureText: obscureText,
+          cursorColor: const Color.fromRGBO(251, 126, 24, 1.0),
+          style: const TextStyle(color: Colors.black),
+          focusNode: focusNode,
+          onTap: () => _scrollToFocusedInput(focusNode),
+          // 👈 key change
+          decoration: InputDecoration(
+            border: InputBorder.none,
+            hintText: hintText,
+            icon: Icon(icon),
+          ),
+          validator: validator,
+        )
+
       ),
     );
   }
+
+
+
 }

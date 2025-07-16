@@ -685,6 +685,7 @@ class _BookingCardsState extends State<BookingCards> {
         children: [
           _buildSlotInfoCard(
               slotId, vehicleType, slotPriority, vehicleCompatibility),
+          _buildrulesCard(),
           const SizedBox(height: 16),
           _buildTodaysBookingCard(slotId),
           const SizedBox(height: 16),
@@ -845,6 +846,51 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
+
+
+  Widget _buildrulesCard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue[200]!, width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: Colors.blue[600], size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Booking Rules:",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue[700],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "• Book today from 8 AM to 8 PM for tomorrow\n"
+                      "• Max 3 bookings per week (Mon–Fri)\n"
+                      "• Weekdays only",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blue[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        ],
+      ),
+    );
+  }
+
   Widget _buildTodaysBookingCard(String slotId) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -890,6 +936,9 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
+
+
+
 
   Widget _buildTomorrowsBookingWidget(String slotId, String vehicleType, String slotPriority) {
     final isWindowOpen = isBookingWindowOpen();
@@ -1071,54 +1120,9 @@ class _BookingCardsState extends State<BookingCards> {
           ],
 
           // Info Section - Always show for context
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue[200]!, width: 1),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded, color: Colors.blue[600], size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Booking Rules:",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "• Booking window: 8:00 AM - 8:00 PM daily\n• Maximum 3 bookings per week (Mon-Fri)\n• Working days only",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue[600],
-                        ),
-                      ),
-                      if (!isWindowOpen) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          "⚠️ Booking window is currently closed",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.red[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ]
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+
+
+
         ],
       ),
     );
@@ -1707,6 +1711,3 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 }
-
-
-

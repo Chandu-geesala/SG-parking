@@ -67,136 +67,207 @@ class _DataUploadUIState extends State<DataUploadUI> {
   }
 
   Widget _buildUploadSection() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            Icon(
-              Icons.cloud_upload_outlined,
-              size: 48,
-              color: Colors.blue[600],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Upload Slots Data',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[800],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Select an Excel (.xlsx) or CSV file to upload parking slots data',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            // Two buttons side by side
-            Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        bool isWide = constraints.maxWidth > 600;
+
+        return Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: EdgeInsets.all(isWide ? 32.0 : 24.0),
+            child: Column(
               children: [
-                // Upload Button (Merge with existing)
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: isProcessing ? null : () => _pickAndProcessFile(clearExisting: false),
-                      icon: isProcessing
-                          ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                          : const Icon(Icons.upload_file, size: 20),
-                      label: Text(
-                        isProcessing ? 'Processing...' : 'Upload & Merge',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[600],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 2,
-                      ),
-                    ),
+                Icon(
+                  Icons.cloud_upload_outlined,
+                  size: isWide ? 64 : 48,
+                  color: Colors.blue[600],
+                ),
+                SizedBox(height: isWide ? 20 : 16),
+                Text(
+                  'Upload Slots Data',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                    fontSize: isWide ? 24 : 20,
                   ),
                 ),
-                const SizedBox(width: 12),
-                // Replace Button (Clear and upload fresh)
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: isProcessing ? null : () => _showReplaceConfirmation(),
-                      icon: const Icon(Icons.refresh, size: 20),
-                      label: const Text(
-                        'Replace All',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange[600],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                SizedBox(height: isWide ? 12 : 8),
+                Text(
+                  'Select an Excel (.xlsx) or CSV file to upload parking slots data',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                    fontSize: isWide ? 16 : 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: isWide ? 32 : 24),
+
+                // Responsive button layout
+                isWide
+                    ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Upload Button (Merge with existing)
+                    SizedBox(
+                      width: 180,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: isProcessing ? null : () => _pickAndProcessFile(clearExisting: false),
+                        icon: isProcessing
+                            ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                            : const Icon(Icons.upload_file, size: 20),
+                        label: Text(
+                          isProcessing ? 'Processing...' : 'Upload & Merge',
+                          style: const TextStyle(fontSize: 14),
                         ),
-                        elevation: 2,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue[600],
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 20),
+                    // Replace Button (Clear and upload fresh)
+                    SizedBox(
+                      width: 180,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: isProcessing ? null : () => _showReplaceConfirmation(),
+                        icon: const Icon(Icons.refresh, size: 20),
+                        label: const Text(
+                          'Replace All',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange[600],
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+                    : Row(
+                  children: [
+                    // Upload Button (Merge with existing)
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: isProcessing ? null : () => _pickAndProcessFile(clearExisting: false),
+                          icon: isProcessing
+                              ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                              : const Icon(Icons.upload_file, size: 20),
+                          label: Text(
+                            isProcessing ? 'Processing...' : 'Upload & Merge',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[600],
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Replace Button (Clear and upload fresh)
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: isProcessing ? null : () => _showReplaceConfirmation(),
+                          icon: const Icon(Icons.refresh, size: 20),
+                          label: const Text(
+                            'Replace All',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange[600],
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Help text
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[200]!),
-              ),
-              child: Column(
-                children: [
-                  Row(
+
+                SizedBox(height: isWide ? 16 : 12),
+
+                // Help text
+                Container(
+                  padding: EdgeInsets.all(isWide ? 16 : 12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Column(
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: Colors.blue[600]),
-                      const SizedBox(width: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, size: isWide ? 18 : 16, color: Colors.blue[600]),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Button Guide:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[700],
+                              fontSize: isWide ? 14 : 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: isWide ? 10 : 8),
                       Text(
-                        'Button Guide:',
+                        '• Upload & Merge: Adds new slots and updates existing ones\n'
+                            '• Replace All: Clears all existing slots and uploads fresh data',
                         style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue[700],
-                          fontSize: 12,
+                          color: Colors.blue[600],
+                          fontSize: isWide ? 13 : 11,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '• Upload & Merge: Adds new slots and updates existing ones\n'
-                        '• Replace All: Clears all existing slots and uploads fresh data',
-                    style: TextStyle(
-                      color: Colors.blue[600],
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
+
+
 
   void _showReplaceConfirmation() {
     showDialog(
@@ -237,160 +308,243 @@ class _DataUploadUIState extends State<DataUploadUI> {
   }
 
   Widget _buildSlotsDataSection() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        bool isWide = constraints.maxWidth > 600;
+        bool isVeryWide = constraints.maxWidth > 900;
+
+        return Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: EdgeInsets.all(isWide ? 32.0 : 24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.local_parking,
-                  color: Colors.blue[600],
-                  size: 28,
+                Row(
+                  children: [
+                    Icon(
+                      Icons.local_parking,
+                      color: Colors.blue[600],
+                      size: isWide ? 32 : 28,
+                    ),
+                    SizedBox(width: isWide ? 16 : 12),
+                    Text(
+                      'Parking Slots Data',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                        fontSize: isWide ? 24 : 20,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  'Parking Slots Data',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
+                SizedBox(height: isWide ? 20 : 16),
+                SizedBox(
+                  height: isWide ? 600 : 500,
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _firestore.collection('Slots').snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: isWide ? 64 : 48,
+                                color: Colors.red[400],
+                              ),
+                              SizedBox(height: isWide ? 20 : 16),
+                              Text(
+                                'Error loading data',
+                                style: TextStyle(
+                                  color: Colors.red[600],
+                                  fontSize: isWide ? 18 : 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final slots = snapshot.data?.docs ?? [];
+
+                      if (slots.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.inbox_outlined,
+                                size: isWide ? 64 : 48,
+                                color: Colors.grey[400],
+                              ),
+                              SizedBox(height: isWide ? 20 : 16),
+                              Text(
+                                'No slots data available',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: isWide ? 18 : 16,
+                                ),
+                              ),
+                              SizedBox(height: isWide ? 12 : 8),
+                              Text(
+                                'Upload a file to see slots data here',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: isWide ? 16 : 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      // For wide screens, use grid layout
+                      if (isVeryWide) {
+                        return GridView.builder(
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: constraints.maxWidth > 1200 ? 3 : 2,
+                            childAspectRatio: 3.5,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                          ),
+                          itemCount: slots.length,
+                          itemBuilder: (context, index) {
+                            final slot = slots[index];
+                            final data = slot.data() as Map<String, dynamic>;
+                            final slotId = data['slotId'] ?? slot.id;
+
+                            final vehicleType = data['vehicleType'] ?? '';
+                            final slotPriority = data['slotPriority'] ?? '';
+                            final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
+                            final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey[300]!),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: _getVehicleTypeColor(vehicleType),
+                                  child: Icon(
+                                    _getVehicleTypeIcon(vehicleType),
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                                title: Text(
+                                  'Slot: $slotId',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      children: [
+                                        _buildChip(vehicleType, Colors.blue),
+                                        _buildChip(slotPriority, Colors.orange),
+                                        if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
+                                          _buildChip(vehicleCompatibility, Colors.purple),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                                onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
+                              ),
+                            );
+                          },
+                        );
+                      }
+
+                      // For mobile and tablet, use list layout
+                      return ListView.builder(
+                        itemCount: slots.length,
+                        itemBuilder: (context, index) {
+                          final slot = slots[index];
+                          final data = slot.data() as Map<String, dynamic>;
+                          final slotId = data['slotId'] ?? slot.id;
+
+                          final vehicleType = data['vehicleType'] ?? '';
+                          final slotPriority = data['slotPriority'] ?? '';
+                          final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
+                          final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
+
+                          return Container(
+                            margin: EdgeInsets.only(bottom: isWide ? 16 : 12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey[300]!),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListTile(
+                              contentPadding: EdgeInsets.all(isWide ? 20 : 16),
+                              leading: CircleAvatar(
+                                backgroundColor: _getVehicleTypeColor(vehicleType),
+                                radius: isWide ? 24 : 20,
+                                child: Icon(
+                                  _getVehicleTypeIcon(vehicleType),
+                                  color: Colors.white,
+                                  size: isWide ? 24 : 20,
+                                ),
+                              ),
+                              title: Text(
+                                'Slot: $slotId',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: isWide ? 18 : 16,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(height: isWide ? 8 : 4),
+                                  Wrap(
+                                    spacing: isWide ? 8 : 6,
+                                    runSpacing: isWide ? 6 : 4,
+                                    children: [
+                                      _buildChip(vehicleType, Colors.blue),
+                                      _buildChip(slotPriority, Colors.orange),
+                                      if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
+                                        _buildChip(vehicleCompatibility, Colors.purple),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              trailing: Icon(
+                                Icons.arrow_forward_ios,
+                                size: isWide ? 18 : 16,
+                              ),
+                              onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
+                            ),
+                          );
+                        },
+                      );
+                    },
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 500,
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _firestore.collection('Slots').snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Error loading data',
-                            style: TextStyle(color: Colors.red[600]),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final slots = snapshot.data?.docs ?? [];
-
-                  if (slots.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.inbox_outlined,
-                            size: 48,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No slots data available',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Upload a file to see slots data here',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    itemCount: slots.length,
-                    itemBuilder: (context, index) {
-                      final slot = slots[index];
-                      final data = slot.data() as Map<String, dynamic>;
-                      final slotId = data['slotId'] ?? slot.id;
-
-                      final vehicleType = data['vehicleType'] ?? '';
-                      final slotPriority = data['slotPriority'] ?? '';
-                      final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
-                      final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: _getVehicleTypeColor(vehicleType),
-                            child: Icon(
-                              _getVehicleTypeIcon(vehicleType),
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          title: Text(
-                            'Slot: $slotId',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                children: [
-                                  _buildChip(vehicleType, Colors.blue),
-                                  _buildChip(slotPriority, Colors.orange),
-                                  if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
-                                    _buildChip(vehicleCompatibility, Colors.purple),
-                                ],
-                              ),
-                            ],
-                          ),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
+
 
   void _showSlotDetailsBottomSheet(BuildContext context, String slotId, Map<String, dynamic> data, List<dynamic> allotedTo) {
     showModalBottomSheet(
@@ -478,23 +632,35 @@ class _DataUploadUIState extends State<DataUploadUI> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildUploadSection(),
-            const SizedBox(height: 16),
-            _buildSlotsDataSection(),
-          ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: 1200, // Maximum width for web
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(
+              MediaQuery.of(context).size.width > 600 ? 24.0 : 16.0,
+            ),
+            child: Column(
+              children: [
+                _buildUploadSection(),
+                const SizedBox(height: 16),
+                _buildSlotsDataSection(),
+              ],
+            ),
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: MediaQuery.of(context).size.width > 600
+          ? null // Hide FAB on web/tablet
+          : FloatingActionButton(
         onPressed: _showAddSlotBottomSheet,
         backgroundColor: Colors.blue[600],
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
+
 
   void _showAddSlotBottomSheet() {
     showModalBottomSheet(

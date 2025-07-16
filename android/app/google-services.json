@@ -7,6 +7,58 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:749550140449:android:d9f59ab26bb5f3c70ef760",
+        "android_client_info": {
+          "package_name": "com.chandu.park_admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "749550140449-887tfc8d2jr8q2atc6adjl7pnc59j7h3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chandu.park_admin",
+            "certificate_hash": "359c878fb1d74054292eb6aa22f34c1d507dd808"
+          }
+        },
+        {
+          "client_id": "749550140449-v01n9vda2f6ncfcdguneu1qk0ba3em7i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.chandu.park_admin",
+            "certificate_hash": "62b4b65fe4cebdb9b001e729fbba6eb793b69c5c"
+          }
+        },
+        {
+          "client_id": "749550140449-ljo17tvplfb0a2ok2hsnvr35e5d9hqgo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMDDDrmC84g8mHr7xmUi9tPA1L00QUTZ4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "749550140449-ljo17tvplfb0a2ok2hsnvr35e5d9hqgo.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "749550140449-r60feod0q9fahkj3uuh5ch57ug1sl1k5.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.chandu.parkAdmin"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:749550140449:android:07b4de11c90bba990ef760",
         "android_client_info": {
           "package_name": "com.chandu.park_sg"
@@ -47,10 +99,10 @@
               "client_type": 3
             },
             {
-              "client_id": "749550140449-tri6b7cehkr7slgc17uk81344prokp15.apps.googleusercontent.com",
+              "client_id": "749550140449-r60feod0q9fahkj3uuh5ch57ug1sl1k5.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.chandu.parkSg"
+                "bundle_id": "com.chandu.parkAdmin"
               }
             }
           ]
