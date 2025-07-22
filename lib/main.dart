@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:in_app_update/in_app_update.dart';
-
+import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'package:park_sg/view/splashScreen/my_splash_screen.dart';
+import 'package:park_sg/utils/theme_provider.dart';
+
 
 /// Handles background Firebase messages
 @pragma('vm:entry-point')
@@ -53,7 +55,14 @@ void main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   print('Firebase messaging background handler set');
 
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatefulWidget {
@@ -74,6 +83,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     print('MyApp initializing...');
     WidgetsBinding.instance.addObserver(this);
 
+    // Initialize theme
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ThemeProvider>().initializeTheme();
+    });
+
     // Check for updates after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!kIsWeb && Platform.isAndroid) {
@@ -82,7 +96,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         print('Skipping Play Store update check — not on Android');
       }
     });
-
 
     // Listen to auth state changes for debugging
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
@@ -100,15 +113,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SenecaGlobal Parking',
-
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: Colors.transparent,
-      ),
-      debugShowCheckedModeBanner: false,
-      home: const MysplashScreen(),
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'SenecaGlobal Parking',
+          debugShowCheckedModeBanner: false,
+          theme: AppThemes.lightTheme,
+          darkTheme: AppThemes.darkTheme,
+          themeMode: themeProvider.themeMode,
+          home: const MysplashScreen(),
+        );
+      },
     );
   }
 }

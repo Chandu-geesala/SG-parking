@@ -15,6 +15,7 @@ class _DataUploadUIState extends State<DataUploadUI> {
   bool isProcessing = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+
   void _pickAndProcessFile({bool clearExisting = false}) async {
     setState(() {
       isProcessing = true;
@@ -66,10 +67,12 @@ class _DataUploadUIState extends State<DataUploadUI> {
     );
   }
 
+
   Widget _buildUploadSection() {
     return LayoutBuilder(
       builder: (context, constraints) {
         bool isWide = constraints.maxWidth > 600;
+        final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
         return Card(
           elevation: 4,
@@ -81,14 +84,18 @@ class _DataUploadUIState extends State<DataUploadUI> {
                 Icon(
                   Icons.cloud_upload_outlined,
                   size: isWide ? 64 : 48,
-                  color: Colors.blue[600],
+                  color: isDarkMode
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.blue[600],
                 ),
                 SizedBox(height: isWide ? 20 : 16),
                 Text(
                   'Upload Slots Data',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
+                    color: isDarkMode
+                        ? Theme.of(context).colorScheme.onSurface
+                        : Colors.grey[800],
                     fontSize: isWide ? 24 : 20,
                   ),
                 ),
@@ -96,7 +103,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                 Text(
                   'Select an Excel (.xlsx) or CSV file to upload parking slots data',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey[600],
+                    color: isDarkMode
+                        ? Theme.of(context).colorScheme.onSurfaceVariant
+                        : Colors.grey[600],
                     fontSize: isWide ? 16 : 14,
                   ),
                   textAlign: TextAlign.center,
@@ -129,7 +138,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                           style: const TextStyle(fontSize: 14),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[600],
+                          backgroundColor: isDarkMode
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.blue[600],
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -151,7 +162,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                           style: TextStyle(fontSize: 14),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange[600],
+                          backgroundColor: isDarkMode
+                              ? const Color(0xFFFF8C00) // Bright orange for dark mode
+                              : Colors.orange[600],
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -185,7 +198,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                             style: const TextStyle(fontSize: 12),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue[600],
+                            backgroundColor: isDarkMode
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.blue[600],
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -208,7 +223,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                             style: TextStyle(fontSize: 12),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange[600],
+                            backgroundColor: isDarkMode
+                                ? const Color(0xFFFF8C00) // Bright orange for dark mode
+                                : Colors.orange[600],
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -223,25 +240,39 @@ class _DataUploadUIState extends State<DataUploadUI> {
 
                 SizedBox(height: isWide ? 16 : 12),
 
-                // Help text
+                // Help text - Theme aware
                 Container(
                   padding: EdgeInsets.all(isWide ? 16 : 12),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
+                    color: isDarkMode
+                        ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+                        : Colors.blue[50],
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue[200]!),
+                    border: Border.all(
+                      color: isDarkMode
+                          ? Theme.of(context).colorScheme.primary.withOpacity(0.4)
+                          : Colors.blue[200]!,
+                    ),
                   ),
                   child: Column(
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.info_outline, size: isWide ? 18 : 16, color: Colors.blue[600]),
+                          Icon(
+                            Icons.info_outline,
+                            size: isWide ? 18 : 16,
+                            color: isDarkMode
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.blue[600],
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Button Guide:',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Colors.blue[700],
+                              color: isDarkMode
+                                  ? Theme.of(context).colorScheme.onSurface
+                                  : Colors.blue[700],
                               fontSize: isWide ? 14 : 12,
                             ),
                           ),
@@ -252,7 +283,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                         '• Upload & Merge: Adds new slots and updates existing ones\n'
                             '• Replace All: Clears all existing slots and uploads fresh data',
                         style: TextStyle(
-                          color: Colors.blue[600],
+                          color: isDarkMode
+                              ? Theme.of(context).colorScheme.onSurfaceVariant
+                              : Colors.blue[600],
                           fontSize: isWide ? 13 : 11,
                         ),
                       ),
@@ -308,6 +341,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
   }
 
   Widget _buildSlotsDataSection() {
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         bool isWide = constraints.maxWidth > 600;
@@ -333,7 +369,9 @@ class _DataUploadUIState extends State<DataUploadUI> {
                       'Parking Slots Data',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.grey[800],
+                        color: isDarkMode
+                            ? Theme.of(context).colorScheme.onSurface
+                            : Colors.grey[800],
                         fontSize: isWide ? 24 : 20,
                       ),
                     ),
@@ -618,20 +656,23 @@ class _DataUploadUIState extends State<DataUploadUI> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Slots Data Management'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        foregroundColor: Theme.of(context).appBarTheme.foregroundColor,
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(
             height: 1,
-            color: Colors.grey[300],
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
           ),
         ),
       ),
+
+
+
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(
@@ -651,13 +692,16 @@ class _DataUploadUIState extends State<DataUploadUI> {
           ),
         ),
       ),
-      floatingActionButton: MediaQuery.of(context).size.width > 600
-          ? null // Hide FAB on web/tablet
-          : FloatingActionButton(
+
+
+      floatingActionButton: FloatingActionButton(
         onPressed: _showAddSlotBottomSheet,
-        backgroundColor: Colors.blue[600],
-        child: const Icon(Icons.add, color: Colors.white),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        child: const Icon(Icons.add),
       ),
+
+
     );
   }
 
@@ -912,6 +956,10 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
   @override
   Widget build(BuildContext context) {
 
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
 
     return Padding(
       padding: EdgeInsets.only(
@@ -919,50 +967,64 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
       ),
       child: Container(
         height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
+        decoration: BoxDecoration(
+          color: colorScheme.surface, // Use theme surface color instead of hardcoded white
+          borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
           ),
+          // Add subtle border for dark theme
+          border: isDark ? Border.all(
+            color: colorScheme.outline.withOpacity(0.2),
+            width: 0.5,
+          ) : null,
         ),
         child: Column(
           children: [
 
 
           // Handle bar
-          Container(
-            margin: const EdgeInsets.only(top: 8),
-            height: 4,
-            width: 40,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              height: 4,
+              width: 40,
+              decoration: BoxDecoration(
+                color: colorScheme.outline.withOpacity(0.5), // Theme-based handle color
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
+
+
+
           // Header
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Icon(Icons.add_circle_outline, color: Colors.blue[600], size: 28),
+                Icon(Icons.add_circle_outline,  color: colorScheme.primary, size: 28),
                 const SizedBox(width: 12),
-                const Text(
+                 Text(
                   'Add New Slot',
-                  style: TextStyle(
+                  style: theme.textTheme.headlineSmall?.copyWith( // Use theme text style
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    color: colorScheme.onSurface,
                   ),
                 ),
                 const Spacer(),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                  icon: Icon(
+                    Icons.close,
+                    color: colorScheme.onSurface, // Theme-based icon color
+                  ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+            Divider(
+              height: 1,
+              color: colorScheme.outline.withOpacity(0.3), // Theme-based divider
+            ),
 
 
           // Form Content
@@ -984,12 +1046,17 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                               // Slot ID
                               TextFormField(
                                 controller: _slotIdController,
+                                style: TextStyle(color: colorScheme.onSurface), // Theme-based text color
                                 decoration: InputDecoration(
                                   labelText: 'Slot ID',
+                                  labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  prefixIcon: const Icon(Icons.tag),
+                                  prefixIcon: Icon(
+                                    Icons.tag,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
@@ -1003,29 +1070,33 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                               // Vehicle Type
                               Text(
                                 'Vehicle Type',
-                                style: TextStyle(
+                                style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.grey[700],
+                                  color: colorScheme.onSurface,
                                 ),
                               ),
                               const SizedBox(height: 8),
 
-
-
                               DropdownButtonFormField<String>(
                                 value: _selectedVehicleType,
+                                style: TextStyle(color: colorScheme.onSurface),
+                                dropdownColor: colorScheme.surface, // Theme-based dropdown background
                                 decoration: InputDecoration(
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   prefixIcon: Icon(
                                     _selectedVehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
+                                    color: colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                                 items: _vehicleTypes.map((type) {
                                   return DropdownMenuItem(
                                     value: type,
-                                    child: Text(type),
+                                    child: Text(
+                                      type,
+                                      style: TextStyle(color: colorScheme.onSurface),
+                                    ),
                                   );
                                 }).toList(),
                                 onChanged: (value) {
@@ -1041,32 +1112,38 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                               const SizedBox(height: 16),
 
                               // Vehicle Compatibility
-                              // Vehicle Compatibility
                               if (_selectedVehicleType == 'CAR') ...[
                                 Text(
                                   'Vehicle Compatibility',
-                                  style: TextStyle(
+                                  style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.grey[700],
+                                    color: colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
 
-
-
                                 DropdownButtonFormField<String>(
                                   value: _selectedVehicleCompatibility.isEmpty ? null : _selectedVehicleCompatibility,
+                                  style: TextStyle(color: colorScheme.onSurface),
+                                  dropdownColor: colorScheme.surface,
                                   decoration: InputDecoration(
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    prefixIcon: const Icon(Icons.electric_bolt),
+                                    prefixIcon: Icon(
+                                      Icons.electric_bolt,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                                     hintText: 'Select compatibility',
+                                    hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
                                   ),
                                   items: ['UPPER', 'LOWER'].map((option) {
                                     return DropdownMenuItem(
                                       value: option,
-                                      child: Text(option),
+                                      child: Text(
+                                        option,
+                                        style: TextStyle(color: colorScheme.onSurface),
+                                      ),
                                     );
                                   }).toList(),
                                   onChanged: (value) {
@@ -1085,14 +1162,6 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                 const SizedBox(height: 24),
                               ],
 
-
-
-
-
-
-
-
-
                               const SizedBox(height: 24),
 
                               // Allocation Section
@@ -1100,9 +1169,9 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                 children: [
                                   Text(
                                     'Allocate to Person(s)',
-                                    style: TextStyle(
+                                    style: theme.textTheme.titleMedium?.copyWith(
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.grey[700],
+                                      color: colorScheme.onSurface,
                                     ),
                                   ),
                                   const Spacer(),
@@ -1128,13 +1197,20 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                   width: double.infinity,
                                   child: OutlinedButton.icon(
                                     onPressed: _addPerson,
-                                    icon: const Icon(Icons.person_add),
-                                    label: const Text('Add Person'),
+                                    icon: Icon(
+                                      Icons.person_add,
+                                      color: colorScheme.primary,
+                                    ),
+                                    label: Text(
+                                      'Add Person',
+                                      style: TextStyle(color: colorScheme.primary),
+                                    ),
                                     style: OutlinedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(vertical: 12),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
+                                      side: BorderSide(color: colorScheme.primary),
                                     ),
                                   ),
                                 ),
@@ -1146,9 +1222,13 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                     margin: const EdgeInsets.only(bottom: 16),
                                     padding: const EdgeInsets.all(16),
                                     decoration: BoxDecoration(
-                                      color: Colors.grey[50],
+                                      color: isDark
+                                          ? colorScheme.surfaceVariant.withOpacity(0.3)
+                                          : colorScheme.surface,
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.grey[200]!),
+                                      border: Border.all(
+                                        color: colorScheme.outline.withOpacity(0.2),
+                                      ),
                                     ),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1157,14 +1237,18 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                           children: [
                                             Text(
                                               'Person ${index + 1}',
-                                              style: const TextStyle(
+                                              style: theme.textTheme.titleSmall?.copyWith(
                                                 fontWeight: FontWeight.bold,
+                                                color: colorScheme.onSurface,
                                               ),
                                             ),
                                             const Spacer(),
                                             IconButton(
                                               onPressed: () => _removePerson(index),
-                                              icon: const Icon(Icons.delete, color: Colors.red),
+                                              icon: Icon(
+                                                Icons.delete,
+                                                color: colorScheme.error,
+                                              ),
                                               constraints: const BoxConstraints(),
                                               padding: EdgeInsets.zero,
                                             ),
@@ -1172,11 +1256,11 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                         ),
                                         const SizedBox(height: 12),
 
-
-                                        // Replace the TextFormField widgets for Name and Email with this dropdown:
+                                        // User Selection Dropdown
                                         DropdownButtonFormField<String>(
                                           decoration: InputDecoration(
                                             labelText: 'Select User',
+                                            labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
                                             border: OutlineInputBorder(
                                               borderRadius: BorderRadius.circular(8),
                                             ),
@@ -1185,22 +1269,23 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                               vertical: 8,
                                             ),
                                           ),
-                                          isExpanded: true, // This prevents overflow
+                                          style: TextStyle(color: colorScheme.onSurface),
+                                          dropdownColor: colorScheme.surface,
+                                          isExpanded: true,
                                           value: _allocatedPersons[index]['email']?.isEmpty ?? true
                                               ? null
                                               : _allocatedPersons[index]['email'],
                                           items: _availableUsers.where((user) {
-                                            // Filter out emails that are already selected in other dropdowns
+                                            // Filter logic remains the same
                                             final currentEmail = _allocatedPersons[index]['email'];
                                             final otherSelectedEmails = _allocatedPersons
                                                 .asMap()
                                                 .entries
-                                                .where((entry) => entry.key != index) // Exclude current index
+                                                .where((entry) => entry.key != index)
                                                 .map((entry) => entry.value['email'])
                                                 .where((email) => email != null && email.isNotEmpty)
                                                 .toSet();
 
-                                            // Show user if it's either the currently selected one or not selected elsewhere
                                             return user['email'] == currentEmail || !otherSelectedEmails.contains(user['email']);
                                           }).map((user) {
                                             return DropdownMenuItem<String>(
@@ -1209,8 +1294,11 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                                 width: double.infinity,
                                                 child: Text(
                                                   '${user['name']} (${user['email']})',
-                                                  overflow: TextOverflow.ellipsis, // Handle long text
-                                                  style: const TextStyle(fontSize: 14),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    color: colorScheme.onSurface,
+                                                  ),
                                                 ),
                                               ),
                                             );
@@ -1231,49 +1319,62 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
                                             return null;
                                           },
                                         ),
-
-
-
-
                                       ],
                                     ),
                                   );
                                 }),
 
+                                // Multiple allocation warning
                                 if (_allocatedPersons.length > 1)
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     margin: const EdgeInsets.only(bottom: 16),
                                     decoration: BoxDecoration(
-                                      color: Colors.orange[50],
+                                      color: isDark
+                                          ? Colors.orange.withOpacity(0.1)
+                                          : Colors.orange[50],
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.orange[200]!),
+                                      border: Border.all(
+                                        color: isDark
+                                            ? Colors.orange.withOpacity(0.3)
+                                            : Colors.orange[200]!,
+                                      ),
                                     ),
                                     child: Row(
                                       children: [
-                                        Icon(Icons.info_outline, color: Colors.orange[600]),
+                                        Icon(
+                                          Icons.info_outline,
+                                          color: isDark
+                                              ? Colors.orange[300]
+                                              : Colors.orange[600],
+                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             'Priority will be set to HYBRID (multiple allocations)',
-                                            style: TextStyle(color: Colors.orange[700]),
+                                            style: TextStyle(
+                                              color: isDark
+                                                  ? Colors.orange[300]
+                                                  : Colors.orange[700],
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
                               ],
-
-
                             ],
                           ),
                         ),
                       ),
                     );
+
                   },
                 ),
               ),
             ),
+
+
 
 
 
@@ -1287,17 +1388,17 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
               child: ElevatedButton(
                 onPressed: _saveSlot,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[600],
-                  foregroundColor: Colors.white,
+                  backgroundColor: colorScheme.primary, // Use theme primary color
+                  foregroundColor: colorScheme.onPrimary, // Use theme on-primary color
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
+                child:  Text(
                   'Save Slot',
-                  style: TextStyle(
+                  style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    color: colorScheme.onPrimary,
                   ),
                 ),
               ),
@@ -1311,6 +1412,9 @@ class _AddSlotBottomSheetState extends State<AddSlotBottomSheet> {
 
 
   }
+
+
+
 }
 
 
@@ -1368,18 +1472,33 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
 
   Future<void> _deleteSlot() async {
     // Show confirmation dialog
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colorScheme = theme.colorScheme;
+
     final bool? confirmDelete = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
+          backgroundColor: theme.dialogBackgroundColor,
+          surfaceTintColor: colorScheme.surfaceTint,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: Row(
             children: [
-              Icon(Icons.warning, color: Colors.red[600], size: 24),
+              Icon(
+                Icons.warning,
+                color: colorScheme.error, // dynamic red for both themes
+                size: 24,
+              ),
               const SizedBox(width: 8),
-              const Text('Delete Slot'),
+              Text(
+                'Delete Slot',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: colorScheme.onSurface,
+                ),
+              ),
             ],
           ),
           content: Column(
@@ -1388,38 +1507,45 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
             children: [
               Text(
                 'Are you sure you want to delete this slot?',
-                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red[50],
+                  color: isDark
+                      ? colorScheme.surfaceVariant.withOpacity(0.8)
+                      : Colors.red[50],
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red[200]!),
+                  border: Border.all(
+                    color: colorScheme.error.withOpacity(0.24), // semi-transparent red
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Slot ID: ${widget.slotId}',
-                      style: const TextStyle(
+                      style: theme.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        color: colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Vehicle Type: ${widget.data['vehicleType'] ?? 'Unknown'}',
-                      style: const TextStyle(fontSize: 14),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                      ),
                     ),
                     if (_allocatedPersons.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         'Allocated to: ${_allocatedPersons.length} person(s)',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.red[600],
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.error,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1430,10 +1556,9 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
               const SizedBox(height: 12),
               Text(
                 'This action cannot be undone.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.red[600],
-                  fontWeight: FontWeight.w500,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.error,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -1441,13 +1566,18 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: colorScheme.primary,
+                ),
+              ),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[600],
-                foregroundColor: Colors.white,
+                backgroundColor: colorScheme.error,
+                foregroundColor: colorScheme.onError,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -1459,43 +1589,6 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
       },
     );
 
-    if (confirmDelete == true) {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        await FirebaseFirestore.instance
-            .collection('Slots')
-            .doc(widget.slotId)
-            .delete();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Slot ${widget.slotId} deleted successfully'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-
-        widget.onSlotUpdated();
-        Navigator.pop(context);
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting slot: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
   }
 
 
@@ -1556,7 +1649,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
         return;
       }
 
-      // Update slot data
+      // Update slot dat
       final updatedData = Map<String, dynamic>.from(widget.data);
       updatedData['alloted_to'] = _allocatedPersons;
       updatedData['slotPriority'] = _determinePriority();
@@ -1594,9 +1687,9 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.8,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
         ),
@@ -1609,7 +1702,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
             height: 4,
             width: 40,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1633,9 +1726,10 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                     children: [
                       Text(
                         'Slot: ${widget.slotId}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 18,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -1654,12 +1748,18 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                  icon: Icon(
+                    Icons.close,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(
+            height: 1,
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+          ),
           // Content
           Expanded(
             child: SingleChildScrollView(
@@ -1674,7 +1774,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
-                          color: Colors.grey[700],
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
                         ),
                       ),
                       const Spacer(),
@@ -1685,6 +1785,10 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           minimumSize: Size.zero,
+                          side: BorderSide(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          foregroundColor: Theme.of(context).colorScheme.primary,
                         ),
                       ),
                     ],
@@ -1698,13 +1802,13 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                           Icon(
                             Icons.person_off_outlined,
                             size: 48,
-                            color: Colors.grey[400],
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'No allocation',
                             style: TextStyle(
-                              color: Colors.grey[500],
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                               fontStyle: FontStyle.italic,
                             ),
                           ),
@@ -1712,9 +1816,6 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                       ),
                     )
                   else
-                  // Replace the existing allocated persons display section in SlotDetailsBottomSheet
-// with this improved version that shows existing user details properly
-
                     ...List.generate(_allocatedPersons.length, (index) {
                       final person = _allocatedPersons[index];
                       final hasExistingData = person['name']?.toString().trim().isNotEmpty == true &&
@@ -1724,9 +1825,18 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                         margin: const EdgeInsets.only(bottom: 16),
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Theme.of(context).colorScheme.surface,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey[200]!),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(context).shadowColor.withOpacity(0.05),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1735,8 +1845,9 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                               children: [
                                 Text(
                                   'Person ${index + 1}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const Spacer(),
@@ -1757,9 +1868,11 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue[50],
+                                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.blue[200]!),
+                                  border: Border.all(
+                                    color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                  ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1769,7 +1882,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                         Icon(
                                           Icons.person,
                                           size: 16,
-                                          color: Colors.blue[600],
+                                          color: Theme.of(context).colorScheme.primary,
                                         ),
                                         const SizedBox(width: 8),
                                         Expanded(
@@ -1777,7 +1890,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                             person['name'] ?? 'Unknown',
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              color: Colors.blue[700],
+                                              color: Theme.of(context).colorScheme.onSurface,
                                             ),
                                           ),
                                         ),
@@ -1789,21 +1902,20 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                         Icon(
                                           Icons.email,
                                           size: 16,
-                                          color: Colors.blue[600],
+                                          color: Theme.of(context).colorScheme.primary,
                                         ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             person['email'] ?? 'Unknown',
                                             style: TextStyle(
-                                              color: Colors.blue[600],
+                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                                               fontSize: 14,
                                             ),
                                           ),
                                         ),
                                       ],
                                     ),
-
                                   ],
                                 ),
                               ),
@@ -1812,14 +1924,27 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                               DropdownButtonFormField<String>(
                                 decoration: InputDecoration(
                                   labelText: 'Select User',
+                                  labelStyle: TextStyle(
+                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                  ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.outline,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                                    ),
                                   ),
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 12,
                                     vertical: 8,
                                   ),
                                 ),
+                                dropdownColor: Theme.of(context).colorScheme.surface,
                                 isExpanded: true,
                                 value: person['email']?.isEmpty ?? true ? null : person['email'],
                                 items: _availableUsers.where((user) {
@@ -1841,7 +1966,10 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                       child: Text(
                                         '${user['name']} (${user['email']})',
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 14),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                        ),
                                       ),
                                     ),
                                   );
@@ -1864,9 +1992,11 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: Colors.green[50],
+                                  color: Colors.green.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.green[100]!),
+                                  border: Border.all(
+                                    color: Colors.green.withOpacity(0.3),
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -1874,13 +2004,13 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                     Icon(
                                       Icons.calendar_today,
                                       size: 14,
-                                      color: Colors.green[600],
+                                      color: Colors.green.shade700,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
                                       'Allotted: ${_formatDate(person['alloted_date'])}',
                                       style: TextStyle(
-                                        color: Colors.green[700],
+                                        color: Colors.green.shade700,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -1892,9 +2022,6 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                         ),
                       );
                     }),
-
-
-
                 ],
               ),
             ),
@@ -1902,11 +2029,19 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
           // Update Button
           Container(
             padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                ),
+              ),
+            ),
             child: Row(
               children: [
                 // Delete FAB-style Button
                 Material(
-                  color: Colors.red[50],
+                  color: Colors.red.withOpacity(0.1),
                   shape: const CircleBorder(),
                   elevation: 2,
                   child: IconButton(
@@ -1924,8 +2059,8 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _updateSlot,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[600],
-                        foregroundColor: Colors.white,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
                         elevation: 2,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -1935,23 +2070,26 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           _isLoading
-                              ? const SizedBox(
+                              ? SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Theme.of(context).colorScheme.onPrimary,
+                              ),
                             ),
                           )
                               : const Icon(Icons.save_rounded, size: 22),
                           const SizedBox(width: 10),
-                          Text(_isLoading ? 'Updating...' : 'Update Slot',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
-                                letterSpacing: 0.2,
-                              )),
-
+                          Text(
+                            _isLoading ? 'Updating...' : 'Update Slot',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1959,17 +2097,10 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                 ),
               ],
             ),
-          )
-
-
-
-
+          ),
         ],
       ),
     );
-
-
-
   }
 
   // Helper methods (copy from your existing code)

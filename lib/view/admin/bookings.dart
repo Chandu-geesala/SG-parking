@@ -62,15 +62,24 @@ class _BookingDashboardState extends State<BookingDashboard>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: isDark
+          ? theme.scaffoldBackgroundColor       // From your dark theme
+          : const Color(0xFFF8F9FA),           // Your original light background
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
-        title: const Text(
+        backgroundColor: isDark
+            ? theme.appBarTheme.backgroundColor // From your dark theme
+            : Colors.white,                     // Your light
+        title: Text(
           'Booking Dashboard',
           style: TextStyle(
-            color: Color(0xFF2D3748),
+            color: isDark
+                ? theme.appBarTheme.foregroundColor ?? theme.colorScheme.onSurface
+                : const Color(0xFF2D3748),
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
@@ -89,7 +98,7 @@ class _BookingDashboardState extends State<BookingDashboard>
             child: Center(
               child: Container(
                 constraints: BoxConstraints(
-                  maxWidth: isWebView ? 1000 : double.infinity, // Reduced max width
+                  maxWidth: isWebView ? 1000 : double.infinity,
                 ),
                 child: _buildOverviewTab(),
               ),
@@ -253,11 +262,16 @@ class _BookingDashboardState extends State<BookingDashboard>
   Widget _buildBookingsList() {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
+        final colorScheme = theme.colorScheme;
+
         bool isLargeScreen = constraints.maxWidth > 800;
 
         return Card(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          color: isDark ? colorScheme.surface : null, // Card color
           child: Container(
             padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
             child: Column(
@@ -267,7 +281,9 @@ class _BookingDashboardState extends State<BookingDashboard>
                   children: [
                     Icon(
                       Icons.event_seat,
-                      color: const Color(0xFF6C5CE7),
+                      color: isDark
+                          ? colorScheme.primary
+                          : const Color(0xFF6C5CE7),
                       size: isLargeScreen ? 24 : 22,
                     ),
                     const SizedBox(width: 8),
@@ -277,7 +293,9 @@ class _BookingDashboardState extends State<BookingDashboard>
                         style: TextStyle(
                           fontSize: isLargeScreen ? 18 : 16,
                           fontWeight: FontWeight.bold,
-                          color: const Color(0xFF2D3748),
+                          color: isDark
+                              ? colorScheme.onSurface
+                              : const Color(0xFF2D3748),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -289,13 +307,17 @@ class _BookingDashboardState extends State<BookingDashboard>
                         vertical: isLargeScreen ? 6 : 5,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF6C5CE7).withOpacity(0.1),
+                        color: isDark
+                            ? colorScheme.primary.withOpacity(0.16)
+                            : const Color(0xFF6C5CE7).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         '${_bookings.length} Bookings',
                         style: TextStyle(
-                          color: const Color(0xFF6C5CE7),
+                          color: isDark
+                              ? colorScheme.primary
+                              : const Color(0xFF6C5CE7),
                           fontSize: isLargeScreen ? 12 : 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -308,9 +330,13 @@ class _BookingDashboardState extends State<BookingDashboard>
                 if (_isLoading)
                   Container(
                     height: 200,
-                    child: const Center(
+                    child: Center(
                       child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C5CE7)),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isDark
+                              ? colorScheme.primary
+                              : const Color(0xFF6C5CE7),
+                        ),
                       ),
                     ),
                   )
@@ -323,13 +349,17 @@ class _BookingDashboardState extends State<BookingDashboard>
                         Icon(
                           Icons.event_busy,
                           size: isLargeScreen ? 64 : 48,
-                          color: const Color(0xFF718096).withOpacity(0.5),
+                          color: isDark
+                              ? colorScheme.onSurface.withOpacity(0.4)
+                              : const Color(0xFF718096).withOpacity(0.5),
                         ),
                         const SizedBox(height: 16),
                         Text(
                           'No bookings found for ${_getDateTitle().toLowerCase()}',
                           style: TextStyle(
-                            color: const Color(0xFF718096),
+                            color: isDark
+                                ? colorScheme.onSurfaceVariant
+                                : const Color(0xFF718096),
                             fontSize: isLargeScreen ? 16 : 14,
                           ),
                         ),
@@ -338,9 +368,9 @@ class _BookingDashboardState extends State<BookingDashboard>
                   )
                 else
                 // Responsive grid layout for large screens
-                  isLargeScreen
+                  (isLargeScreen
                       ? _buildGridLayout()
-                      : _buildListLayout(),
+                      : _buildListLayout()),
               ],
             ),
           ),
@@ -384,15 +414,25 @@ class _BookingDashboardState extends State<BookingDashboard>
   Widget _buildCompactBookingCard(Map<String, dynamic> booking) {
     final bookingData = booking['bookingData'] as Map<String, dynamic>;
     final slotId = booking['slotId'] as String;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Card(
-      elevation: 1,
+      elevation: isDark ? 8 : 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: isDark ? colorScheme.surface : null,
+      shadowColor: isDark ? Colors.black.withOpacity(0.3) : null,
+      surfaceTintColor: isDark ? colorScheme.surfaceVariant : null,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(
+            color: isDark
+                ? colorScheme.outline.withOpacity(0.3)
+                : const Color(0xFFE2E8F0),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,12 +442,12 @@ class _BookingDashboardState extends State<BookingDashboard>
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6C5CE7).withOpacity(0.1),
+                    color: colorScheme.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     Icons.directions_car,
-                    color: const Color(0xFF6C5CE7),
+                    color: colorScheme.primary,
                     size: 16,
                   ),
                 ),
@@ -418,16 +458,16 @@ class _BookingDashboardState extends State<BookingDashboard>
                     children: [
                       Text(
                         'Slot $slotId',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
-                          color: Color(0xFF2D3748),
+                          color: colorScheme.onSurface,
                         ),
                       ),
                       Text(
                         bookingData['vehicleType'] ?? 'Unknown Vehicle',
-                        style: const TextStyle(
-                          color: Color(0xFF718096),
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
                           fontSize: 12,
                         ),
                       ),
@@ -437,13 +477,13 @@ class _BookingDashboardState extends State<BookingDashboard>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF48BB78).withOpacity(0.1),
+                    color: colorScheme.secondary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Booked',
                     style: TextStyle(
-                      color: Color(0xFF48BB78),
+                      color: colorScheme.secondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),
@@ -477,23 +517,26 @@ class _BookingDashboardState extends State<BookingDashboard>
   }
 
   Widget _buildCompactDetailItem(String label, String value) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF718096),
+            color: colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Color(0xFF2D3748),
+            color: colorScheme.onSurface,
           ),
           overflow: TextOverflow.ellipsis,
         ),
@@ -501,61 +544,77 @@ class _BookingDashboardState extends State<BookingDashboard>
     );
   }
 
+
   Widget _buildBookingCard(Map<String, dynamic> booking) {
     final bookingData = booking['bookingData'] as Map<String, dynamic>;
     final slotId = booking['slotId'] as String;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
         tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        backgroundColor: const Color(0xFFF7FAFC),
-        collapsedBackgroundColor: Colors.white,
+        backgroundColor: isDark
+            ? colorScheme.surfaceVariant.withOpacity(0.3)
+            : const Color(0xFFF7FAFC),
+        collapsedBackgroundColor: isDark
+            ? colorScheme.surface
+            : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFFE2E8F0)),
+          side: BorderSide(
+            color: isDark
+                ? colorScheme.outline.withOpacity(0.3)
+                : const Color(0xFFE2E8F0),
+          ),
         ),
         collapsedShape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFFE2E8F0)),
+          side: BorderSide(
+            color: isDark
+                ? colorScheme.outline.withOpacity(0.3)
+                : const Color(0xFFE2E8F0),
+          ),
         ),
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: const Color(0xFF6C5CE7).withOpacity(0.1),
+            color: colorScheme.primary.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.directions_car,
-            color: Color(0xFF6C5CE7),
+            color: colorScheme.primary,
             size: 20,
           ),
         ),
         title: Text(
           'Slot $slotId',
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 16,
-            color: Color(0xFF2D3748),
+            color: colorScheme.onSurface,
           ),
         ),
         subtitle: Text(
           bookingData['vehicleType'] ?? 'Unknown Vehicle',
-          style: const TextStyle(
-            color: Color(0xFF718096),
+          style: TextStyle(
+            color: colorScheme.onSurfaceVariant,
             fontSize: 14,
           ),
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFF48BB78).withOpacity(0.1),
+            color: colorScheme.secondary.withOpacity(0.1),
             borderRadius: BorderRadius.circular(6),
           ),
-          child: const Text(
+          child: Text(
             'Booked',
             style: TextStyle(
-              color: Color(0xFF48BB78),
+              color: colorScheme.secondary,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -564,9 +623,11 @@ class _BookingDashboardState extends State<BookingDashboard>
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF7FAFC),
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? colorScheme.surfaceVariant.withOpacity(0.3)
+                  : const Color(0xFFF7FAFC),
+              borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(12),
                 bottomRight: Radius.circular(12),
               ),
@@ -594,6 +655,9 @@ class _BookingDashboardState extends State<BookingDashboard>
   }
 
   Widget _buildDetailRow(String label, String value) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -603,20 +667,23 @@ class _BookingDashboardState extends State<BookingDashboard>
             width: 100,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF718096),
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
           ),
-          const Text(': ', style: TextStyle(color: Color(0xFF718096))),
+          Text(
+            ': ',
+            style: TextStyle(color: colorScheme.onSurfaceVariant),
+          ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF2D3748),
+                color: colorScheme.onSurface,
               ),
             ),
           ),
@@ -624,6 +691,9 @@ class _BookingDashboardState extends State<BookingDashboard>
       ),
     );
   }
+
+
+
 
   String _getDateTitle() {
     switch (_selectedDateType) {
@@ -739,14 +809,25 @@ class _BookingDashboardState extends State<BookingDashboard>
   }
 
 // Add this widget method for available slots
+
+
+
+
+
   Widget _buildAvailableSlotsList() {
     return LayoutBuilder(
       builder: (context, constraints) {
         bool isLargeScreen = constraints.maxWidth > 800;
+        final theme = Theme.of(context);
+        final colorScheme = theme.colorScheme;
+        final isDark = theme.brightness == Brightness.dark;
 
         return Card(
-          elevation: 2,
+          elevation: isDark ? 8 : 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          color: isDark ? colorScheme.surface : null,
+          shadowColor: isDark ? Colors.black.withOpacity(0.3) : null,
+          surfaceTintColor: isDark ? colorScheme.surfaceVariant : null,
           child: Container(
             padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
             child: Column(
@@ -756,7 +837,7 @@ class _BookingDashboardState extends State<BookingDashboard>
                   children: [
                     Icon(
                       Icons.local_parking,
-                      color: const Color(0xFF48BB78),
+                      color: colorScheme.secondary,
                       size: isLargeScreen ? 24 : 22,
                     ),
                     const SizedBox(width: 8),
@@ -766,7 +847,7 @@ class _BookingDashboardState extends State<BookingDashboard>
                         style: TextStyle(
                           fontSize: isLargeScreen ? 18 : 16,
                           fontWeight: FontWeight.bold,
-                          color: const Color(0xFF2D3748),
+                          color: colorScheme.onSurface,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -778,13 +859,13 @@ class _BookingDashboardState extends State<BookingDashboard>
                         vertical: isLargeScreen ? 6 : 5,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF48BB78).withOpacity(0.1),
+                        color: colorScheme.secondary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         '${_availableSlots.length} Available',
                         style: TextStyle(
-                          color: const Color(0xFF48BB78),
+                          color: colorScheme.secondary,
                           fontSize: isLargeScreen ? 12 : 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -797,9 +878,9 @@ class _BookingDashboardState extends State<BookingDashboard>
                 if (_isLoadingSlots)
                   Container(
                     height: 150,
-                    child: const Center(
+                    child: Center(
                       child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF48BB78)),
+                        valueColor: AlwaysStoppedAnimation<Color>(colorScheme.secondary),
                       ),
                     ),
                   )
@@ -812,7 +893,7 @@ class _BookingDashboardState extends State<BookingDashboard>
                         Icon(
                           Icons.check_circle_outline,
                           size: isLargeScreen ? 64 : 48,
-                          color: const Color(0xFF718096).withOpacity(0.5),
+                          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
                         ),
                         const SizedBox(height: 16),
                         Text(
@@ -820,7 +901,7 @@ class _BookingDashboardState extends State<BookingDashboard>
                               ? 'All slots are booked for today'
                               : 'Available slots only shown for today',
                           style: TextStyle(
-                            color: const Color(0xFF718096),
+                            color: colorScheme.onSurfaceVariant,
                             fontSize: isLargeScreen ? 16 : 14,
                           ),
                           textAlign: TextAlign.center,
@@ -879,15 +960,23 @@ class _BookingDashboardState extends State<BookingDashboard>
     final slotData = slot['slotData'] as Map<String, dynamic>;
     final vehicleType = slot['vehicleType'] as String;
     final slotPriority = slot['slotPriority'] as String;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Card(
-      elevation: 1,
+      elevation: isDark ? 4 : 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: isDark ? colorScheme.surface : null,
+      shadowColor: isDark ? Colors.black.withOpacity(0.3) : null,
+      surfaceTintColor: isDark ? colorScheme.surfaceVariant : null,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF48BB78).withOpacity(0.3)),
+          border: Border.all(
+            color: colorScheme.secondary.withOpacity(0.3),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -898,12 +987,12 @@ class _BookingDashboardState extends State<BookingDashboard>
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF48BB78).withOpacity(0.1),
+                    color: colorScheme.secondary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
-                    color: const Color(0xFF48BB78),
+                    color: colorScheme.secondary,
                     size: 16,
                   ),
                 ),
@@ -915,17 +1004,17 @@ class _BookingDashboardState extends State<BookingDashboard>
                     children: [
                       Text(
                         'Slot $slotId',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
-                          color: Color(0xFF2D3748),
+                          color: colorScheme.onSurface,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         vehicleType,
-                        style: const TextStyle(
-                          color: Color(0xFF718096),
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
                           fontSize: 12,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -939,16 +1028,16 @@ class _BookingDashboardState extends State<BookingDashboard>
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: slotPriority == 'permanent'
-                          ? const Color(0xFF6C5CE7).withOpacity(0.1)
-                          : const Color(0xFFED8936).withOpacity(0.1),
+                          ? colorScheme.primary.withOpacity(0.1)
+                          : colorScheme.tertiary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       slotPriority.toUpperCase(),
                       style: TextStyle(
                         color: slotPriority == 'permanent'
-                            ? const Color(0xFF6C5CE7)
-                            : const Color(0xFFED8936),
+                            ? colorScheme.primary
+                            : colorScheme.tertiary,
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
                       ),
@@ -964,14 +1053,16 @@ class _BookingDashboardState extends State<BookingDashboard>
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF7FAFC),
+                  color: isDark
+                      ? colorScheme.surfaceVariant.withOpacity(0.3)
+                      : const Color(0xFFF7FAFC),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   'Alloted to: ${(slot['alloted_to'] as List).join(', ')}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
-                    color: Color(0xFF718096),
+                    color: colorScheme.onSurfaceVariant,
                   ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 2,
@@ -982,6 +1073,7 @@ class _BookingDashboardState extends State<BookingDashboard>
       ),
     );
   }
+
 // Full card for available slots (list view)
   Widget _buildAvailableSlotCard(Map<String, dynamic> slot) {
     final slotId = slot['slotId'] as String;
@@ -989,17 +1081,25 @@ class _BookingDashboardState extends State<BookingDashboard>
     final vehicleType = slot['vehicleType'] as String;
     final slotPriority = slot['slotPriority'] as String;
     final allotedTo = slot['alloted_to'] as List?;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Card(
-        elevation: 1,
+        elevation: isDark ? 4 : 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: isDark ? colorScheme.surface : null,
+        shadowColor: isDark ? Colors.black.withOpacity(0.3) : null,
+        surfaceTintColor: isDark ? colorScheme.surfaceVariant : null,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF48BB78).withOpacity(0.3)),
+            border: Border.all(
+              color: colorScheme.secondary.withOpacity(0.3),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1009,12 +1109,12 @@ class _BookingDashboardState extends State<BookingDashboard>
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF48BB78).withOpacity(0.1),
+                      color: colorScheme.secondary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
-                      color: const Color(0xFF48BB78),
+                      color: colorScheme.secondary,
                       size: 20,
                     ),
                   ),
@@ -1025,16 +1125,16 @@ class _BookingDashboardState extends State<BookingDashboard>
                       children: [
                         Text(
                           'Slot $slotId',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 16,
-                            color: Color(0xFF2D3748),
+                            color: colorScheme.onSurface,
                           ),
                         ),
                         Text(
                           vehicleType,
-                          style: const TextStyle(
-                            color: Color(0xFF718096),
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
                             fontSize: 14,
                           ),
                         ),
@@ -1045,16 +1145,16 @@ class _BookingDashboardState extends State<BookingDashboard>
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: slotPriority == 'permanent'
-                          ? const Color(0xFF6C5CE7).withOpacity(0.1)
-                          : const Color(0xFFED8936).withOpacity(0.1),
+                          ? colorScheme.primary.withOpacity(0.1)
+                          : colorScheme.tertiary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       slotPriority.toUpperCase(),
                       style: TextStyle(
                         color: slotPriority == 'permanent'
-                            ? const Color(0xFF6C5CE7)
-                            : const Color(0xFFED8936),
+                            ? colorScheme.primary
+                            : colorScheme.tertiary,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1067,23 +1167,25 @@ class _BookingDashboardState extends State<BookingDashboard>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF7FAFC),
+                    color: isDark
+                        ? colorScheme.surfaceVariant.withOpacity(0.3)
+                        : const Color(0xFFF7FAFC),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.person,
                         size: 16,
-                        color: Color(0xFF718096),
+                        color: colorScheme.onSurfaceVariant,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Alloted to: ${allotedTo.join(', ')}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFF2D3748),
+                            color: colorScheme.onSurface,
                           ),
                         ),
                       ),
@@ -1097,6 +1199,9 @@ class _BookingDashboardState extends State<BookingDashboard>
       ),
     );
   }
+
+
+
 
 // Update your _buildOverviewTab method to include the available slots widget
   Widget _buildOverviewTab() {

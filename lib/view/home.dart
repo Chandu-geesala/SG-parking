@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 import '../utils/booking_cards.dart';
+import 'package:park_sg/utils/theme_provider.dart';
 import '../viewModel/bookingBackend.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -13,8 +14,6 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-
-// Add these new state variables at the top of _HomeScreenState class
 class _HomeScreenState extends State<HomeScreen> {
   late Future<Map<String, dynamic>?> _userSlotFuture;
   final BookingBackend _backend = BookingBackend();
@@ -22,109 +21,46 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _slotRequest;
   bool _isLoadingRequest = false;
 
-
-
   @override
   void initState() {
     super.initState();
     _userSlotFuture = fetchUserSlot();
 
-    fetchSlotRequest(); // <-- add this
+  }
+
+  // Helper method to determine if we're on a large screen (web/tablet)
+  bool _isLargeScreen(BuildContext context) {
+    return MediaQuery.of(context).size.width > 800;
+  }
+
+  // Get appropriate max width for content
+  double _getMaxContentWidth(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    if (screenWidth > 1200) return 1000; // Large desktop
+    if (screenWidth > 800) return 800;   // Tablet/small desktop
+    return screenWidth;                  // Mobile
   }
 
 
-
-  Future<void> fetchSlotRequest() async {
-    setState(() {
-      _isLoadingRequest = true;
-    });
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        setState(() {
-          _slotRequest = null;
-          _isLoadingRequest = false;
-        });
-        return;
-      }
-
-      final query = await FirebaseFirestore.instance
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .get(); // NO orderBy!
-
-      if (query.docs.isNotEmpty) {
-        // If multiple docs, pick the one with 'pending' status first, else the most recent (even if timestamp is null)
-        var docs = query.docs;
-        docs.sort((a, b) {
-          // If both have timestamps, newest first
-          final aTime = a.data()['timestamp'];
-          final bTime = b.data()['timestamp'];
-          if (aTime != null && bTime != null) {
-            return bTime.compareTo(aTime);
-          }
-          // Place those with timestamp at top
-          if (aTime != null) return -1;
-          if (bTime != null) return 1;
-          return 0;
-        });
-        _slotRequest = docs.first.data();
-      } else {
-        _slotRequest = null;
-      }
-    } catch (e) {
-      _slotRequest = null;
-    }
-    setState(() {
-      _isLoadingRequest = false;
-    });
-  }
-
-
-  // Update the _refreshProfile method
   Future<void> _refreshProfile() async {
     setState(() {
       _userSlotFuture = fetchUserSlot();
     });
     await _userSlotFuture;
 
-    await fetchSlotRequest();
-// Add this line
   }
 
 
 
-  String getDisplayNameFromEmail(String email) {
-    // Get the part before @
-    final usernamePart = email.split('@').first;
-    // Replace . with space, then capitalize each word properly
-    final words = usernamePart.split('.').map((word) {
-      if (word.isEmpty) return '';
-      // Convert entire word to lowercase first, then capitalize first letter
-      return word[0].toUpperCase() + word.substring(1).toLowerCase();
-    }).toList();
-    return words.join(' ');
-  }
-
-
-  // Update the _buildSlotDashboard method to include the tomorrow's booking card
   Widget _buildSlotDashboard(Map<String, dynamic> slotData) {
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-
-
         const BookingCards(),
-
-        const SizedBox(height: 16),
-
-
-
+        SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 16)),
       ],
     );
   }
-
 
   Future<Map<String, dynamic>?> fetchUserSlot() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -132,7 +68,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final userEmail = user.email!;
 
-    // Query Slots collection to find slot where user email exists in alloted_to array
     final slotsSnapshot = await FirebaseFirestore.instance
         .collection('Slots')
         .get();
@@ -141,7 +76,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final data = doc.data();
       final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
 
-      // Check if user email exists in alloted_to array
       for (var user in allotedTo) {
         if (user['email'] == userEmail) {
           return {
@@ -153,37 +87,30 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    return null; // User not found in any slot
+    return null;
   }
-
-
 
   @override
   Widget build(BuildContext context) {
+    final isLargeScreen = _isLargeScreen(context);
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        shadowColor: Colors.grey.withOpacity(0.1),
-
-
-
+        centerTitle: isLargeScreen,
         title: Row(
+          mainAxisSize: isLargeScreen ? MainAxisSize.min : MainAxisSize.max,
           children: [
             Image.asset(
               'assets/txt.png',
-              height: 40,
+              height: ResponsiveUtils.isMobile(context) ? 35 : 40,
               fit: BoxFit.contain,
             ),
           ],
         ),
-
-
-
-
         actions: [
+          const ThemeSwitchWidget(),
+
           Container(
             margin: const EdgeInsets.only(right: 16),
             child: IconButton(
@@ -203,34 +130,51 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+
+
       body: RefreshIndicator(
         onRefresh: _refreshProfile,
-        color: Colors.blue[600],
+        color: Theme.of(context).colorScheme.primary,
         child: FutureBuilder<Map<String, dynamic>?>(
           future: _userSlotFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
+              return Center(
                 child: CircularProgressIndicator(
                   strokeWidth: 3,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               );
             }
 
             if (snapshot.hasError) {
               return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline, size: 64, color: Colors.red[400]),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Error: ${snapshot.error}',
-                      style: TextStyle(color: Colors.red[400], fontSize: 16),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: _getMaxContentWidth(context),
+                  ),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Error: ${snapshot.error}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 ),
               );
             }
@@ -238,23 +182,43 @@ class _HomeScreenState extends State<HomeScreen> {
             final slotData = snapshot.data;
             final currentUser = FirebaseAuth.instance.currentUser;
             final userName = currentUser?.displayName ??
-                (currentUser?.email != null ? getDisplayNameFromEmail(currentUser!.email!) : 'User');
+                (currentUser?.email != null
+                    ? _backend.getDisplayNameFromEmail(currentUser!.email!)
+                    : 'User');
 
-            return SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildWelcomeSection(userName),
-                    const SizedBox(height: 24),
-                    if (slotData == null)
-                      _buildNoSlotAssignedCard()
-                    else
-                      _buildSlotDashboard(slotData),
-                    const SizedBox(height: 20),
-                  ],
+
+            return Center(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: _getMaxContentWidth(context),
+                ),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLargeScreen ? 32 : 16,
+                      vertical: isLargeScreen ? 32 : 16,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+
+
+                      children: [
+                        if (slotData != null) ...[
+                          _buildWelcomeSection(userName),
+                          SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 32)),
+                        ],
+                        if (slotData == null)
+                          _buildNoSlotAssignedCard()
+                        else
+                          _buildSlotDashboard(slotData),
+                        SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 24)),
+                        // Add some bottom padding for web view
+                        if (isLargeScreen) const SizedBox(height: 40),
+                      ],
+
+                    ),
+                  ),
                 ),
               ),
             );
@@ -265,19 +229,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildWelcomeSection(String userName) {
+    final isLargeScreen = _isLargeScreen(context);
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      width: double.infinity,
+      padding: EdgeInsets.all(isLargeScreen ? 28 : 20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.blue[600]!, Colors.blue[400]!],
+          colors: [
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.primary.withOpacity(0.8),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 20),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(0.3),
-            blurRadius: 12,
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            blurRadius: isLargeScreen ? 16 : 12,
             offset: const Offset(0, 6),
           ),
         ],
@@ -285,34 +255,35 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(isLargeScreen ? 16 : 12),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(isLargeScreen ? 20 : 16),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.person_rounded,
-              color: Colors.white,
-              size: 32,
+              color: Theme.of(context).colorScheme.onPrimary,
+              size: isLargeScreen ? 36 : 28,
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: isLargeScreen ? 20 : 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Welcome back,',
                   style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.8),
+                    fontSize: isLargeScreen ? 18 : 16,
                   ),
                 ),
+                const SizedBox(height: 4),
                 Text(
                   userName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontSize: isLargeScreen ? 28 : 24,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -325,224 +296,191 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildNoSlotAssignedCard() {
-    if (_isLoadingRequest) {
-      return Center(child: CircularProgressIndicator());
-    }
+    final isLargeScreen = _isLargeScreen(context);
 
-    if (_slotRequest != null) {
-      // Show status if request exists
-      final status = _slotRequest!['status'] ?? 'pending';
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _backend.fetchSlotRequest(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: isLargeScreen ? 500 : double.infinity,
+              ),
+              child: CircularProgressIndicator(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          );
+        }
 
-      final timestamp = _slotRequest!['timestamp'];
-      String dateStr = '';
-      if (timestamp is Timestamp) {
-        dateStr = DateFormat('MMM dd, yyyy - hh:mm a').format(timestamp.toDate());
-      }
+        final slotRequest = snapshot.data;
+        Widget cardContent;
 
-      return Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(16),
+        if (slotRequest != null) {
+          final status = slotRequest['status'] ?? 'pending';
+          final timestamp = slotRequest['timestamp'];
+          String dateStr = '';
+          if (timestamp is Timestamp) {
+            dateStr = DateFormat('MMM dd, yyyy - hh:mm a').format(timestamp.toDate());
+          }
+
+          cardContent = Column(
+            children: [
+              Container(
+                padding: EdgeInsets.all(isLargeScreen ? 20 : 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(isLargeScreen ? 20 : 16),
+                ),
+                child: Icon(
+                  Icons.hourglass_top_rounded,
+                  size: isLargeScreen ? 56 : 40,
+                  color: status == 'approved'
+                      ? Colors.green
+                      : status == 'rejected'
+                      ? Colors.red
+                      : Theme.of(context).colorScheme.primary,
+                ),
               ),
-              child: Icon(
-                Icons.hourglass_top_rounded,
-                size: 48,
-                color: status == 'approved'
-                    ? Colors.green
-                    : status == 'rejected'
-                    ? Colors.red
-                    : Colors.blue[600],
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              status == 'approved'
-                  ? 'Slot Request Approved'
-                  : status == 'rejected'
-                  ? 'Slot Request Rejected'
-                  : 'Slot Request Pending',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: status == 'approved'
-                    ? Colors.green[800]
-                    : status == 'rejected'
-                    ? Colors.red[800]
-                    : Colors.blue[900],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Your request to admin is currently "$status".\n${dateStr.isNotEmpty ? 'Submitted: $dateStr' : ''}',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[700],
-                height: 1.4,
-              ),
-            ),
-            if (status == 'rejected') ...[
-              const SizedBox(height: 16),
+              SizedBox(height: isLargeScreen ? 24 : 20),
               Text(
-                'You may contact admin for further info.',
+                status == 'approved'
+                    ? 'Slot Request Approved'
+                    : status == 'rejected'
+                    ? 'Slot Request Rejected'
+                    : 'Slot Request Pending',
                 style: TextStyle(
-                  color: Colors.red[400],
-                  fontWeight: FontWeight.w600,
+                  fontSize: isLargeScreen ? 26 : 22,
+                  fontWeight: FontWeight.bold,
+                  color: status == 'approved'
+                      ? Colors.green[800]
+                      : status == 'rejected'
+                      ? Colors.red[800]
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              SizedBox(height: isLargeScreen ? 16 : 12),
+              Text(
+                'Your request to admin is currently "$status".\n${dateStr.isNotEmpty ? 'Submitted: $dateStr' : ''}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: isLargeScreen ? 18 : 16,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                  height: 1.4,
+                ),
+              ),
+              if (status == 'rejected') ...[
+                SizedBox(height: isLargeScreen ? 20 : 16),
+                Text(
+                  'You may contact admin for further info.',
+                  style: TextStyle(
+                    color: Colors.red[400],
+                    fontWeight: FontWeight.w600,
+                    fontSize: isLargeScreen ? 16 : 14,
+                  ),
+                ),
+              ],
+            ],
+          );
+        } else {
+          cardContent = Column(
+            children: [
+              Container(
+                padding: EdgeInsets.all(isLargeScreen ? 20 : 16),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(isLargeScreen ? 20 : 16),
+                ),
+                child: Icon(
+                  Icons.info_outline_rounded,
+                  size: isLargeScreen ? 56 : 40,
+                  color: Colors.orange[600],
+                ),
+              ),
+              SizedBox(height: isLargeScreen ? 24 : 20),
+              Text(
+                'No Parking Slot Assigned',
+                style: TextStyle(
+                  fontSize: isLargeScreen ? 26 : 22,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              SizedBox(height: isLargeScreen ? 16 : 12),
+              Text(
+                'You don\'t have a parking slot assigned yet.\nContact admin to request one.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: isLargeScreen ? 18 : 16,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                  height: 1.4,
+                ),
+              ),
+              SizedBox(height: isLargeScreen ? 32 : 24),
+              SizedBox(
+                width: isLargeScreen ? 300 : double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await _handleSlotRequest();
+                  },
+                  icon: const Icon(Icons.contact_support_rounded),
+                  label: const Text("Contact Admin"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange[600],
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(
+                      vertical: isLargeScreen ? 18 : 16,
+                      horizontal: isLargeScreen ? 24 : 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(isLargeScreen ? 16 : 12),
+                    ),
+                    textStyle: TextStyle(
+                      fontSize: isLargeScreen ? 18 : 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
             ],
-          ],
-        ),
-      );
-    }
+          );
+        }
 
-    // Default: show Contact Admin button if no request exists
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(16),
+        return Center(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: isLargeScreen ? 600 : double.infinity,
             ),
-            child: Icon(
-              Icons.info_outline_rounded,
-              size: 48,
-              color: Colors.orange[600],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'No Parking Slot Assigned',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'You are not currently assigned to any parking slot.\nPlease contact the admin for slot allocation.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                await requestSlotAllocation();
-              },
-              icon: const Icon(Icons.contact_support_rounded),
-              label: const Text("Contact Admin"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange[600],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                textStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+            child: Card(
+              elevation: isLargeScreen ? 6 : 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 16),
+              ),
+              child: Container(
+                padding: EdgeInsets.all(isLargeScreen ? 32 : 20),
+                child: cardContent,
               ),
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
 
+  Future<void> _handleSlotRequest() async {
+    // Call the requestNewSlot method from your backend
+    final result = await _backend.requestNewSlot();
 
-
-  Future<void> requestSlotAllocation() async {
-    try {
-      // Get current user
-      User? currentUser = FirebaseAuth.instance.currentUser;
-
-      if (currentUser == null) {
-        throw Exception('No user logged in');
-      }
-
-      // Get user email and name
-      String userEmail = currentUser.email ?? '';
-      // Use displayName if available, else generate from email
-      String userName = currentUser.displayName ?? getDisplayNameFromEmail(userEmail);
-
-      // Create request data
-      Map<String, dynamic> requestData = {
-        'email': userEmail,
-        'name': userName,
-        'timestamp': FieldValue.serverTimestamp(),
-        'text': 'Requested to allot slot',
-        'status': 'pending', // Optional: to track request status
-      };
-
-      // Add to Firestore 'requests' collection
-      await FirebaseFirestore.instance
-          .collection('requests')
-          .add(requestData);
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Slot request submitted successfully!"),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      await Future.delayed(const Duration(milliseconds: 500));
-      await fetchSlotRequest();
-
-
-
-    } catch (e) {
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Error submitting request: ${e.toString()}"),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (result['success']) {
+      _backend.showSnackBar(context, result['message'], isError: false);
+      // Refresh the UI to show the new request status
+      setState(() {});
+    } else {
+      _backend.showSnackBar(context, result['message'], isError: true);
     }
   }
-
-
 
 
 }

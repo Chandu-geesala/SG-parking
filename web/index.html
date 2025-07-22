@@ -1,43 +1,421 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <base href="$FLUTTER_BASE_HREF">
+    <base href="$FLUTTER_BASE_HREF">
+    <meta charset="UTF-8">
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+    <meta name="description" content="Senecaglobal Smart Parking System - Seamless slot management, user-friendly booking, and efficient parking for modern campuses.">
 
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+    <!-- iOS meta tags & icons -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="park_sg">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <link rel="shortcut icon" href="icons/favicon.ico">
+    <!-- Android icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/android-chrome-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/android-chrome-512x512.png">
+    <link rel="manifest" href="icons/manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="background-color" content="#ffffff">
+    <title>SenecaGlobal Parking</title>
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="park_sg">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
-  <link rel="shortcut icon" href="icons/favicon.ico">
+    <style>
+        /* Loading Screen Styles */
+        #loading-screen {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 30%, #f1f3f4 70%, #ffffff 100%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+          overflow: hidden;
+        }
 
-  <!-- Android icons -->
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/android-chrome-192x192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="icons/android-chrome-512x512.png">
+        /* Dark Theme Support */
+        @media (prefers-color-scheme: dark) {
+          #loading-screen {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 30%, #3a3a3a 70%, #2a2a2a 100%);
+          }
+        }
 
-  <link rel="manifest" href="icons/manifest.json">
+        #loading-screen.fade-out {
+          opacity: 0;
+          transform: scale(1.1);
+          pointer-events: none;
+        }
 
-  <meta name="theme-color" content="#ffffff">
-  <meta name="background-color" content="#ffffff">
+        /* Professional Background Pattern */
+        #loading-screen::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background-image:
+            radial-gradient(circle at 25% 25%, rgba(139, 155, 79, 0.03) 0%, transparent 50%),
+            radial-gradient(circle at 75% 75%, rgba(139, 155, 79, 0.05) 0%, transparent 50%);
+          background-size: 400px 400px, 300px 300px;
+          animation: patternMove 20s ease-in-out infinite;
+        }
 
-  <title>park_sg</title>
+        /* Dark Theme Background Pattern */
+        @media (prefers-color-scheme: dark) {
+          #loading-screen::before {
+            background-image:
+              radial-gradient(circle at 25% 25%, rgba(139, 155, 79, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 75% 75%, rgba(139, 155, 79, 0.12) 0%, transparent 50%);
+          }
+        }
+
+        @keyframes patternMove {
+          0%, 100% { transform: translate(0, 0); }
+          25% { transform: translate(-10px, -10px); }
+          50% { transform: translate(10px, -5px); }
+          75% { transform: translate(-5px, 10px); }
+        }
+
+        /* Company Logo Text */
+        .company-logo {
+          position: relative;
+          margin-bottom: 40px;
+          z-index: 2;
+        }
+
+        .company-text {
+          font-size: 48px;
+          font-weight: 700;
+          color: #8B9B4F;
+          letter-spacing: 2px;
+          font-family: 'Segoe UI', system-ui, sans-serif;
+          position: relative;
+          text-shadow: 0 2px 4px rgba(139, 155, 79, 0.1);
+          animation: companyGlow 4s ease-in-out infinite;
+        }
+
+        @keyframes companyGlow {
+          0%, 100% {
+            transform: scale(1);
+            filter: brightness(1);
+            text-shadow: 0 2px 4px rgba(139, 155, 79, 0.1);
+          }
+          50% {
+            transform: scale(1.02);
+            filter: brightness(1.1);
+            text-shadow: 0 4px 20px rgba(139, 155, 79, 0.3);
+          }
+        }
+
+        /* Letter Animation */
+        .company-text .letter {
+          display: inline-block;
+          animation: letterFloat 3s ease-in-out infinite;
+        }
+
+        .company-text .letter:nth-child(1) { animation-delay: 0.1s; }
+        .company-text .letter:nth-child(2) { animation-delay: 0.2s; }
+        .company-text .letter:nth-child(3) { animation-delay: 0.3s; }
+        .company-text .letter:nth-child(4) { animation-delay: 0.4s; }
+        .company-text .letter:nth-child(5) { animation-delay: 0.5s; }
+        .company-text .letter:nth-child(6) { animation-delay: 0.6s; }
+        .company-text .letter:nth-child(7) { animation-delay: 0.7s; }
+        .company-text .letter:nth-child(8) { animation-delay: 0.8s; }
+        .company-text .letter:nth-child(9) { animation-delay: 0.9s; }
+        .company-text .letter:nth-child(10) { animation-delay: 1.0s; }
+        .company-text .letter:nth-child(11) { animation-delay: 1.1s; }
+        .company-text .letter:nth-child(12) { animation-delay: 1.2s; }
+
+        @keyframes letterFloat {
+          0%, 100% {
+            transform: translateY(0px) rotateY(0deg);
+            opacity: 1;
+          }
+          50% {
+            transform: translateY(-8px) rotateY(5deg);
+            opacity: 0.8;
+          }
+        }
+
+        /* App Subtitle */
+        .app-subtitle {
+          color: #6c757d;
+          font-size: 22px;
+          font-weight: 300;
+          margin-bottom: 50px;
+          text-align: center;
+          animation: subtitleSlide 1.5s ease-out 0.5s both;
+          letter-spacing: 4px;
+          text-transform: uppercase;
+          position: relative;
+          z-index: 2;
+        }
+
+        /* Dark Theme Subtitle */
+        @media (prefers-color-scheme: dark) {
+          .app-subtitle {
+            color: #adb5bd;
+          }
+        }
+
+        @keyframes subtitleSlide {
+          0% {
+            opacity: 0;
+            transform: translateY(30px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        /* Elegant Loading Dots */
+        .loading-dots {
+          display: flex;
+          gap: 16px;
+          margin-bottom: 40px;
+          position: relative;
+          z-index: 2;
+        }
+
+        .dot {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: linear-gradient(45deg, #FF6B35, #ff7f50);
+          animation: elegantBounce 1.8s infinite ease-in-out;
+          box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.3s; }
+        .dot:nth-child(2) { animation-delay: -0.15s; }
+        .dot:nth-child(3) { animation-delay: 0s; }
+
+        @keyframes elegantBounce {
+          0%, 80%, 100% {
+            transform: scale(0.8) translateY(0);
+            opacity: 0.6;
+          }
+          40% {
+            transform: scale(1.2) translateY(-10px);
+            opacity: 1;
+          }
+        }
+
+        /* Minimalist Progress Bar */
+        .progress-container {
+          width: 300px;
+          height: 3px;
+          background: rgba(139, 155, 79, 0.1);
+          border-radius: 2px;
+          overflow: hidden;
+          margin-bottom: 30px;
+          position: relative;
+          z-index: 2;
+        }
+
+        .progress-bar {
+          height: 100%;
+          background: linear-gradient(90deg, #8B9B4F, #a4b86b, #8B9B4F);
+          border-radius: 2px;
+          width: 0%;
+          animation: smoothProgress 4s ease-in-out infinite;
+          box-shadow: 0 0 10px rgba(139, 155, 79, 0.3);
+        }
+
+        @keyframes smoothProgress {
+          0% { width: 0%; }
+          50% { width: 75%; }
+          100% { width: 100%; }
+        }
+
+        /* Professional Loading Text */
+        .loading-text {
+          color: #6c757d;
+          font-size: 16px;
+          font-weight: 400;
+          animation: textPulse 3s ease-in-out infinite;
+          text-align: center;
+          position: relative;
+          z-index: 2;
+          font-style: italic;
+        }
+
+        /* Dark Theme Loading Text */
+        @media (prefers-color-scheme: dark) {
+          .loading-text {
+            color: #adb5bd;
+          }
+        }
+
+        @keyframes textPulse {
+          0%, 100% { opacity: 0.7; }
+          50% { opacity: 1; }
+        }
+
+        /* Floating Geometric Shapes */
+        .geometric-shapes {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          top: 0;
+          left: 0;
+          z-index: 1;
+        }
+
+        .shape {
+          position: absolute;
+          opacity: 0.05;
+          animation: shapeFloat 25s linear infinite;
+        }
+
+        .shape:nth-child(1) {
+          width: 60px;
+          height: 60px;
+          background: #8B9B4F;
+          border-radius: 10px;
+          left: 10%;
+          animation-delay: 0s;
+        }
+
+        .shape:nth-child(2) {
+          width: 40px;
+          height: 40px;
+          background: #8B9B4F;
+          border-radius: 50%;
+          left: 80%;
+          animation-delay: 8s;
+        }
+
+        .shape:nth-child(3) {
+          width: 30px;
+          height: 30px;
+          background: #8B9B4F;
+          transform: rotate(45deg);
+          left: 60%;
+          animation-delay: 15s;
+        }
+
+        @keyframes shapeFloat {
+          0% {
+            transform: translateY(100vh) rotate(0deg);
+            opacity: 0;
+          }
+          10%, 90% {
+            opacity: 0.05;
+          }
+          100% {
+            transform: translateY(-100px) rotate(360deg);
+            opacity: 0;
+          }
+        }
+
+        /* Flutter App Container */
+        #flutter-app {
+          opacity: 0;
+          transition: opacity 0.5s ease-in;
+        }
+
+        #flutter-app.show {
+          opacity: 1;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+          .company-text {
+            font-size: 36px;
+          }
+
+          .app-subtitle {
+            font-size: 18px;
+            letter-spacing: 2px;
+          }
+
+          .progress-container {
+            width: 250px;
+          }
+        }
+    </style>
 </head>
 <body>
-<script src="flutter_bootstrap.js" async></script>
+<!-- Professional Loading Screen -->
+<div id="loading-screen">
+    <div class="geometric-shapes">
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
+    </div>
+
+    <div class="company-logo">
+        <div class="company-text">
+            <span class="letter">S</span><span class="letter">E</span><span class="letter">N</span><span class="letter">E</span><span class="letter">C</span><span class="letter">A</span><span class="letter">G</span><span class="letter">L</span><span class="letter">O</span><span class="letter">B</span><span class="letter">A</span><span class="letter">L</span>
+        </div>
+    </div>
+
+    <div class="app-subtitle">PARKING COMPANION</div>
+
+    <div class="loading-dots">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+    </div>
+
+    <div class="progress-container">
+        <div class="progress-bar"></div>
+    </div>
+
+    <div class="loading-text">Initializing intelligent parking management...</div>
+</div>
+
+<!-- Flutter App Container -->
+<div id="flutter-app">
+    <script src="flutter_bootstrap.js" async></script>
+</div>
 
 <script>
-  // Enable file downloads
-  window.addEventListener('beforeunload', function(e) {
-    // Allow downloads
-  });
-</script>
+    // Hide loading screen when Flutter app is ready
+    function hideLoadingScreen() {
+      const loadingScreen = document.getElementById('loading-screen');
+      const flutterApp = document.getElementById('flutter-app');
 
+      // Start fade out animation
+      loadingScreen.classList.add('fade-out');
+      flutterApp.classList.add('show');
+
+      // Remove loading screen after animation
+      setTimeout(() => {
+        loadingScreen.style.display = 'none';
+      }, 500);
+    }
+
+    // Listen for Flutter app ready event
+    window.addEventListener('flutter-first-frame', hideLoadingScreen);
+
+    // Fallback: Hide loading screen after maximum time
+    setTimeout(hideLoadingScreen, 8000);
+
+    // Enable file downloads
+    window.addEventListener('beforeunload', function(e) {
+      // Allow downloads
+    });
+
+    // Optional: Hide loading screen when DOM is loaded (for testing)
+    document.addEventListener('DOMContentLoaded', function() {
+      // Uncomment the line below if you want to test the loading screen
+      // setTimeout(hideLoadingScreen, 3000);
+    });
+</script>
 </body>
 </html>

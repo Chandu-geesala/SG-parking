@@ -4,6 +4,7 @@ import 'package:park_sg/view/admin/requests.dart';
 import 'package:park_sg/view/admin/slots.dart';
 import 'package:park_sg/view/admin/users.dart';
 import 'package:park_sg/viewModel/authService.dart';
+import '../../utils/theme_provider.dart';
 import '../../viewModel/bookingBackend.dart';
 import 'analytics.dart';
 import 'bookings.dart';
@@ -26,7 +27,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   void initState() {
     super.initState();
-    // _currentUser = _authService.getCurrentUser();
     _loadProfileData();
   }
 
@@ -53,30 +53,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   // Pull-to-refresh handler
   Future<void> _handleRefresh() async {
     try {
-      // Refresh profile data
       await _loadProfileData();
 
-      // You can add other refresh operations here if needed
-      // For example, refreshing booking cards data, user counts, etc.
-
-      // Show a brief success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Data refreshed successfully'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: const Text('Data refreshed successfully'),
+            duration: const Duration(seconds: 2),
             backgroundColor: Colors.green,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
     } catch (e) {
-      // Show error message if refresh fails
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to refresh data: $e'),
             duration: const Duration(seconds: 3),
             backgroundColor: Colors.red,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -84,15 +84,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   String _getDisplayName() {
-    // 1. Try profileData name
     if (_profileData != null && _profileData!['name'] != null && (_profileData!['name'] as String).isNotEmpty) {
       return _profileData!['name'];
     }
-    // 2. Try FirebaseAuth displayName
     if (_currentUser?.displayName != null && _currentUser!.displayName!.isNotEmpty) {
       return _currentUser!.displayName!;
     }
-    // 3. Fallback to email prefix
     if (_currentUser?.email != null && _currentUser!.email!.isNotEmpty) {
       return _currentUser!.email!.split('@').first;
     }
@@ -100,34 +97,28 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   String? _getPhotoUrl() {
-    // 1. Try profileData photoUrl
     final pdUrl = _profileData?['photoUrl'];
     if (pdUrl != null && pdUrl is String && pdUrl.isNotEmpty) {
       return pdUrl;
     }
-    // 2. Try FirebaseAuth photoURL
     final cuUrl = _currentUser?.photoURL;
     if (cuUrl != null && cuUrl.isNotEmpty) {
       return cuUrl;
     }
-    // 3. No image
     return null;
   }
 
-  // Helper method to determine if we're on a large screen
   bool _isLargeScreen(BuildContext context) {
     return MediaQuery.of(context).size.width > 768;
   }
 
-  // Helper method to get responsive grid count
   int _getGridCount(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    if (width > 1200) return 4; // Desktop
-    if (width > 768) return 3;  // Tablet
-    return 2; // Mobile
+    if (width > 1200) return 4;
+    if (width > 768) return 3;
+    return 2;
   }
 
-  // Helper method to get responsive padding
   EdgeInsets _getResponsivePadding(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     if (width > 1200) return const EdgeInsets.symmetric(horizontal: 80, vertical: 20);
@@ -135,7 +126,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return const EdgeInsets.all(20);
   }
 
-  // Helper method to get max width for content
   double? _getMaxWidth(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     if (width > 1200) return 1200;
@@ -145,13 +135,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isLargeScreen = _isLargeScreen(context);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
-        elevation: 1,
+        backgroundColor: theme.appBarTheme.backgroundColor,
+        foregroundColor: theme.appBarTheme.foregroundColor,
+        elevation: theme.appBarTheme.elevation ?? 1,
         centerTitle: isLargeScreen,
         title: Row(
           mainAxisSize: isLargeScreen ? MainAxisSize.min : MainAxisSize.max,
@@ -160,18 +153,21 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               'assets/txt.png',
               height: 40,
               fit: BoxFit.contain,
+              // Add color filter for dark mode compatibility if needed
+
             ),
           ],
         ),
         actions: [
+          const ThemeSwitchWidget(),
           _buildProfileMenu(context),
           SizedBox(width: isLargeScreen ? 80 : 16),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _handleRefresh,
-        color: Colors.blue,
-        backgroundColor: Colors.white,
+        color: colorScheme.primary,
+        backgroundColor: theme.cardColor,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: Center(
@@ -184,26 +180,54 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Welcome Card
+                  // Welcome Card - Colorful version for dark mode
                   Container(
                     width: double.infinity,
                     padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      gradient: theme.brightness == Brightness.dark
+                          ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          const Color(0xFF1A1A2E),
+                          const Color(0xFF16213E),
+                          const Color(0xFF0F3460),
+                        ],
+                      )
+                          : LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.blue.shade50,
+                          Colors.indigo.shade50,
+                          Colors.purple.shade50,
+                        ],
+                      ),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
+                          color: theme.brightness == Brightness.dark
+                              ? Colors.blue.withOpacity(0.2)
+                              : colorScheme.shadow.withOpacity(0.1),
+                          blurRadius: 15,
                           offset: const Offset(0, 4),
                         ),
                       ],
+                      border: theme.brightness == Brightness.dark
+                          ? Border.all(
+                        color: Colors.blue.withOpacity(0.3),
+                        width: 1,
+                      )
+                          : null,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const SizedBox(width: 16),
+
+
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,17 +237,21 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                     style: TextStyle(
                                       fontSize: isLargeScreen ? 24 : 20,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
+                                      color: theme.brightness == Brightness.dark
+                                          ? Colors.white
+                                          : colorScheme.onSurface,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 2,
                                   ),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 16),
                                   Text(
                                     _currentUser?.email ?? 'Ready to manage the lot like a pro?',
                                     style: TextStyle(
                                       fontSize: isLargeScreen ? 16 : 14,
-                                      color: Colors.grey.shade600,
+                                      color: theme.brightness == Brightness.dark
+                                          ? Colors.blue.shade200
+                                          : colorScheme.onSurface.withOpacity(0.7),
                                     ),
                                   ),
                                 ],
@@ -231,19 +259,19 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+
+
                       ],
                     ),
                   ),
 
-                  SizedBox(height: isLargeScreen ? 48 : 32),
-
+                  const SizedBox(height: 10),
                   Text(
                     'Quick Actions',
                     style: TextStyle(
                       fontSize: isLargeScreen ? 22 : 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: colorScheme.onSurface,
                     ),
                   ),
 
@@ -345,20 +373,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     width: double.infinity,
                     padding: EdgeInsets.all(isLargeScreen ? 32 : 20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: theme.cardColor,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: colorScheme.shadow.withOpacity(0.1),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
                       ],
                     ),
-                    child: Column(
+                    child: const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const BookingCards(),
+                        BookingCards(),
                       ],
                     ),
                   ),
@@ -372,15 +400,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildProfileMenu(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     if (_isLoadingProfile) {
-      return const Padding(
-        padding: EdgeInsets.all(8.0),
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
         child: CircleAvatar(
-          backgroundColor: Colors.grey,
+          backgroundColor: colorScheme.surfaceVariant,
           radius: 20,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
           ),
         ),
       );
@@ -391,13 +422,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     return PopupMenuButton<String>(
       offset: const Offset(16, 48),
+      color: theme.cardColor,
       icon: photoUrl == null || photoUrl.isEmpty
           ? CircleAvatar(
-        backgroundColor: Colors.blueGrey.shade200,
+        backgroundColor: colorScheme.surfaceVariant,
         radius: 20,
         child: Text(
           displayName.isNotEmpty ? displayName[0].toUpperCase() : 'A',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
       )
           : CircleAvatar(
@@ -411,13 +447,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'logout',
           child: Row(
             children: [
-              Icon(Icons.logout, color: Colors.red),
-              SizedBox(width: 8),
-              Text('Log out'),
+              const Icon(Icons.logout, color: Colors.red),
+              const SizedBox(width: 8),
+              Text(
+                'Log out',
+                style: TextStyle(color: colorScheme.onSurface),
+              ),
             ],
           ),
         ),
@@ -433,69 +472,162 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     required VoidCallback onTap,
   }) {
     final isLargeScreen = _isLargeScreen(context);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate responsive dimensions based on available width
+        final cardWidth = constraints.maxWidth;
+        final isVerySmall = cardWidth < 150;
+        final isSmall = cardWidth < 200;
+
+        return Container(
+          width: double.infinity,
+          constraints: BoxConstraints(
+            minHeight: isLargeScreen ? 140 : 120,
+            maxHeight: isLargeScreen ? 180 : 160,
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(isLargeScreen ? 20 : 16),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: isLargeScreen ? 32 : 28,
-                    color: Colors.black,
-                  ),
-                ),
-                SizedBox(height: isLargeScreen ? 20 : 16),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: isLargeScreen ? 16 : 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                if (isLargeScreen) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+          decoration: BoxDecoration(
+            // Attractive gradient background for dark mode, solid for light
+            gradient: isDark
+                ? LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF1E293B), // Dark slate
+                const Color(0xFF334155), // Lighter slate
+                const Color(0xFF1E293B).withOpacity(0.8), // Subtle variation
               ],
+              stops: const [0.0, 0.6, 1.0],
+            )
+                : null,
+            color: isDark ? null : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+
+            // Enhanced border with accent color integration
+            border: Border.all(
+              color: isDark
+                  ? color.withOpacity(0.3) // More visible accent color border
+                  : Colors.grey.withOpacity(0.1),
+              width: isDark ? 1.2 : 0.5,
+            ),
+
+            // Multi-layer shadow system for depth
+            boxShadow: [
+              // Primary shadow
+              BoxShadow(
+                color: isDark
+                    ? color.withOpacity(0.15) // Colored glow effect
+                    : Colors.grey.withOpacity(0.1),
+                offset: const Offset(0, 4),
+                blurRadius: isDark ? 16 : 6,
+                spreadRadius: 0,
+              ),
+              // Secondary depth shadow for dark mode
+              if (isDark) ...[
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  offset: const Offset(0, 2),
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                ),
+                // Subtle inner glow
+                BoxShadow(
+                  color: color.withOpacity(0.05),
+                  offset: const Offset(0, 0),
+                  blurRadius: 20,
+                  spreadRadius: 0,
+                ),
+              ],
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isVerySmall ? 8 : (isSmall ? 12 : (isLargeScreen ? 20 : 16)),
+                  vertical: isVerySmall ? 12 : (isLargeScreen ? 20 : 16),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Icon container with flexible sizing
+                    Flexible(
+                      flex: 2,
+                      child: Container(
+                        padding: EdgeInsets.all(
+                            isVerySmall ? 8 : (isSmall ? 10 : (isLargeScreen ? 16 : 12))
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          icon,
+                          size: isVerySmall ? 20 : (isSmall ? 24 : (isLargeScreen ? 28 : 24)),
+                          color: theme.brightness == Brightness.dark
+                              ? color.withOpacity(0.8)
+                              : color,
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: isVerySmall ? 8 : (isLargeScreen ? 16 : 12)),
+
+                    // Title with flexible text handling
+                    Flexible(
+                      flex: 1,
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: isVerySmall ? 11 : (isSmall ? 12 : (isLargeScreen ? 14 : 13)),
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                          height: 1.2, // Tighter line height for better spacing
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: true,
+                      ),
+                    ),
+
+                    // Subtitle - only show if there's enough space and screen is large enough
+                    if (isLargeScreen && !isSmall && !isVerySmall) ...[
+                      const SizedBox(height: 4),
+                      Flexible(
+                        flex: 1,
+                        child: Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: colorScheme.onSurface.withOpacity(0.7),
+                            height: 1.2,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: true,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
+
+
 
   Widget _buildStatItem({
     required IconData icon,
@@ -503,6 +635,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     required String label,
     required Color color,
   }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Column(
       children: [
         Row(
@@ -510,15 +645,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             Icon(
               icon,
               size: 20,
-              color: Colors.black,
+              color: colorScheme.onSurface,
             ),
             const SizedBox(width: 8),
             Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Colors.black,
+                color: colorScheme.onSurface,
               ),
             ),
           ],
@@ -528,7 +663,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: Colors.grey.shade600,
+            color: colorScheme.onSurface.withOpacity(0.7),
           ),
         ),
       ],

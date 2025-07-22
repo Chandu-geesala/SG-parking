@@ -1086,29 +1086,102 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      // Use theme-aware background colors
+      backgroundColor: isDark
+          ? const Color(0xFF0F172A) // Dark navy from your theme
+          : Colors.grey[100], // Keep original light background
+
       appBar: AppBar(
         title: const Text('Analytics Dashboard'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+
+        // Theme-aware AppBar styling
+        backgroundColor: isDark
+            ? const Color(0xFF1E293B) // Dark slate from your theme
+            : Colors.indigo, // Keep original indigo
+
+        foregroundColor: isDark
+            ? const Color(0xFFF8FAFC) // Clean white from your theme
+            : Colors.white, // Keep original white
+
         elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        child: Center( // Center the content
+
+        // Enhanced AppBar styling for dark mode
+        surfaceTintColor: isDark ? Colors.transparent : null,
+
+        // Add subtle shadow/border for dark mode
+        bottom: isDark
+            ? PreferredSize(
+          preferredSize: const Size.fromHeight(1),
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 1200), // Limit max width
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                _buildExportSection(),
-                _buildSearchSection(),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _analyticsData == null
-                    ? _buildEmptyState()
-                    : _buildAnalyticsContent(),
-              ],
+            height: 1,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF334155).withOpacity(0.3),
+                  const Color(0xFF334155).withOpacity(0.1),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        )
+            : null,
+      ),
+
+      body: Container(
+        // Add subtle gradient background for dark mode
+        decoration: isDark
+            ? const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF0F172A), // Dark navy
+              Color(0xFF1A1B23), // Slightly lighter at bottom
+            ],
+            stops: [0.0, 1.0],
+          ),
+        )
+            : null,
+
+        child: SingleChildScrollView(
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                // Add top padding for dark mode visual separation
+                vertical: isDark ? 8 : 0,
+              ),
+              child: Column(
+                children: [
+                  // Add subtle spacing for dark mode
+                  if (isDark) const SizedBox(height: 8),
+
+                  _buildExportSection(),
+                  _buildSearchSection(),
+                  _isLoading
+                      ? Center(
+                    child: CircularProgressIndicator(
+                      // Theme-aware loading indicator
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isDark
+                            ? const Color(0xFF60A5FA) // Vibrant blue from theme
+                            : Theme.of(context).primaryColor,
+                      ),
+                    ),
+                  )
+                      : _analyticsData == null
+                      ? _buildEmptyState()
+                      : _buildAnalyticsContent(),
+
+                  // Add bottom padding for dark mode
+                  if (isDark) const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         ),
@@ -1118,32 +1191,59 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
 
 
-
-
   Widget _buildExportSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       margin: const EdgeInsets.only(top: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        // Theme-aware background
+        gradient: isDark
+            ? LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF1E293B),
+            const Color(0xFF334155),
+          ],
+        )
+            : null,
+        color: isDark ? null : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: isDark
+            ? Border.all(
+          color: const Color(0xFF60A5FA).withOpacity(0.2),
+          width: 1,
+        )
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
+            color: isDark
+                ? Colors.black.withOpacity(0.3)
+                : Colors.grey.withOpacity(0.1),
+            blurRadius: isDark ? 8 : 4,
             offset: const Offset(0, 2),
           ),
+          if (isDark)
+            BoxShadow(
+              color: const Color(0xFF60A5FA).withOpacity(0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 0),
+            ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Export Analytics',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Colors.indigo,
+              color: isDark
+                  ? const Color(0xFF60A5FA) // Theme blue
+                  : Colors.indigo,
             ),
           ),
           const SizedBox(height: 16),
@@ -1160,22 +1260,44 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
+                      color: isDark
+                          ? const Color(0xFF334155).withOpacity(0.5)
+                          : null,
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFF475569)
+                            : Colors.grey[300]!,
+                      ),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.date_range, color: Colors.indigo),
+                        Icon(
+                          Icons.date_range,
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : Colors.indigo,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _startDate != null && _endDate != null
                                 ? '${DateFormat('dd MMM yyyy').format(_startDate!)} - ${DateFormat('dd MMM yyyy').format(_endDate!)}'
                                 : 'Select date range',
-                            style: const TextStyle(fontSize: 14),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isDark
+                                  ? const Color(0xFFE2E8F0)
+                                  : Colors.black87,
+                            ),
                           ),
                         ),
-                        const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                        Icon(
+                          Icons.arrow_drop_down,
+                          color: isDark
+                              ? const Color(0xFF94A3B8)
+                              : Colors.grey,
+                        ),
                       ],
                     ),
                   ),
@@ -1198,12 +1320,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       width: 200,
                       child: ElevatedButton.icon(
                         onPressed: _isExporting ? null : _exportUsersToExcel,
-                        icon: const Icon(Icons.people),
+                        icon: Icon(
+                          Icons.people,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+
                         label: const Text('Export Users'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: isDark
+                              ? const Color(0xFF34D399)
+                              : Colors.green,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: isDark ? 6 : 2,
+                          shadowColor: isDark
+                              ? const Color(0xFF34D399).withOpacity(0.3)
+                              : null,
                         ),
                       ),
                     ),
@@ -1212,12 +1344,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       width: 200,
                       child: ElevatedButton.icon(
                         onPressed: _isExporting ? null : _exportSlotsToExcel,
-                        icon: const Icon(Icons.local_parking),
+                        icon: Icon(
+                          Icons.local_parking,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+
                         label: const Text('Export Slots'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor: isDark
+                              ? const Color(0xFF60A5FA)
+                              : Colors.blue,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: isDark ? 6 : 2,
+                          shadowColor: isDark
+                              ? const Color(0xFF60A5FA).withOpacity(0.3)
+                              : null,
                         ),
                       ),
                     ),
@@ -1233,9 +1375,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         icon: const Icon(Icons.people),
                         label: const Text('Export Users'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: isDark
+                              ? const Color(0xFF34D399)
+                              : Colors.green,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: isDark ? 6 : 2,
+                          shadowColor: isDark
+                              ? const Color(0xFF34D399).withOpacity(0.3)
+                              : null,
                         ),
                       ),
                     ),
@@ -1246,9 +1394,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         icon: const Icon(Icons.local_parking),
                         label: const Text('Export Slots'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor: isDark
+                              ? const Color(0xFF60A5FA)
+                              : Colors.blue,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: isDark ? 6 : 2,
+                          shadowColor: isDark
+                              ? const Color(0xFF60A5FA).withOpacity(0.3)
+                              : null,
                         ),
                       ),
                     ),
@@ -1272,13 +1426,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     children: [
                       LinearProgressIndicator(
                         value: _exportProgress,
-                        backgroundColor: Colors.grey[200],
-                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.indigo),
+                        backgroundColor: isDark
+                            ? const Color(0xFF475569)
+                            : Colors.grey[200],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isDark
+                              ? const Color(0xFF60A5FA)
+                              : Colors.indigo,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Exporting... ${(_exportProgress * 100).toInt()}%',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? const Color(0xFF94A3B8)
+                              : Colors.grey,
+                        ),
                       ),
                     ],
                   ),
@@ -1293,24 +1458,55 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
 
 
+
+
   Widget _buildSearchSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       margin: const EdgeInsets.only(top: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        // Theme-aware background
+        gradient: isDark
+            ? LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF1E293B),
+            const Color(0xFF334155),
+          ],
+        )
+            : null,
+        color: isDark ? null : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: isDark
+            ? Border.all(
+          color: const Color(0xFF60A5FA).withOpacity(0.2),
+          width: 1,
+        )
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
+            color: isDark
+                ? Colors.black.withOpacity(0.3)
+                : Colors.grey.withOpacity(0.1),
+            blurRadius: isDark ? 8 : 4,
             offset: const Offset(0, 2),
           ),
+          if (isDark)
+            BoxShadow(
+              color: const Color(0xFF60A5FA).withOpacity(0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 0),
+            ),
         ],
       ),
       child: Column(
         children: [
           // Responsive search row
+
+
           LayoutBuilder(
             builder: (context, constraints) {
               if (constraints.maxWidth > 600) {
@@ -1321,18 +1517,38 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     Container(
                       width: 400,
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: isDark
+                            ? const Color(0xFF334155)
+                            : Colors.grey[100],
                         borderRadius: BorderRadius.circular(8),
+                        border: isDark
+                            ? Border.all(
+                          color: const Color(0xFF475569),
+                          width: 0.5,
+                        )
+                            : null,
                       ),
                       child: TextField(
                         controller: _searchController,
+                        style: TextStyle(
+                          color: isDark
+                              ? const Color(0xFFE2E8F0)
+                              : Colors.black87,
+                        ),
                         decoration: InputDecoration(
                           hintText: _searchType == 'user'
                               ? 'Enter user email...'
                               : 'Enter slot ID...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? const Color(0xFF94A3B8)
+                                : Colors.grey[600],
+                          ),
                           prefixIcon: Icon(
                             _searchType == 'user' ? Icons.email : Icons.local_parking,
-                            color: Colors.indigo,
+                            color: isDark
+                                ? const Color(0xFF60A5FA)
+                                : Colors.indigo,
                           ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
@@ -1347,9 +1563,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     ElevatedButton(
                       onPressed: _performSearch,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
+                        backgroundColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : Colors.indigo,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        elevation: isDark ? 6 : 2,
+                        shadowColor: isDark
+                            ? const Color(0xFF60A5FA).withOpacity(0.3)
+                            : null,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -1365,18 +1587,38 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: isDark
+                              ? const Color(0xFF334155)
+                              : Colors.grey[100],
                           borderRadius: BorderRadius.circular(8),
+                          border: isDark
+                              ? Border.all(
+                            color: const Color(0xFF475569),
+                            width: 0.5,
+                          )
+                              : null,
                         ),
                         child: TextField(
                           controller: _searchController,
+                          style: TextStyle(
+                            color: isDark
+                                ? const Color(0xFFE2E8F0)
+                                : Colors.black87,
+                          ),
                           decoration: InputDecoration(
                             hintText: _searchType == 'user'
                                 ? 'Enter user email...'
                                 : 'Enter slot ID...',
+                            hintStyle: TextStyle(
+                              color: isDark
+                                  ? const Color(0xFF94A3B8)
+                                  : Colors.grey[600],
+                            ),
                             prefixIcon: Icon(
                               _searchType == 'user' ? Icons.email : Icons.local_parking,
-                              color: Colors.indigo,
+                              color: isDark
+                                  ? const Color(0xFF60A5FA)
+                                  : Colors.indigo,
                             ),
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(
@@ -1392,9 +1634,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     ElevatedButton(
                       onPressed: _performSearch,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
+                        backgroundColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : Colors.indigo,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        elevation: isDark ? 6 : 2,
+                        shadowColor: isDark
+                            ? const Color(0xFF60A5FA).withOpacity(0.3)
+                            : null,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -1409,21 +1657,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           const SizedBox(height: 16),
 
           // Responsive type selectors
+          // Responsive type selectors
           LayoutBuilder(
             builder: (context, constraints) {
-              if (constraints.maxWidth > 600) {
+              final isDesktop = constraints.maxWidth > 600;
+
+              if (isDesktop) {
                 // Web layout - type selectors with fixed width
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: [
                     SizedBox(
                       width: 200,
-                      child: _buildTypeSelector('user', 'User Analytics', Icons.person),
+                      child: _buildTypeSelector('user', 'User Analytics', Icons.person, isDesktop: true),
                     ),
                     const SizedBox(width: 16),
                     SizedBox(
                       width: 200,
-                      child: _buildTypeSelector('slot', 'Slot Analytics', Icons.local_parking),
+                      child: _buildTypeSelector('slot', 'Slot Analytics', Icons.local_parking, isDesktop: true),
                     ),
                   ],
                 );
@@ -1431,91 +1682,138 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 // Mobile layout - original expanded
                 return Row(
                   children: [
-                    Expanded(
-                      child: _buildTypeSelector('user', 'User Analytics', Icons.person),
-                    ),
+                    _buildTypeSelector('user', 'User Analytics', Icons.person, isDesktop: false),
                     const SizedBox(width: 16),
-                    Expanded(
-                      child: _buildTypeSelector('slot', 'Slot Analytics', Icons.local_parking),
-                    ),
+                    _buildTypeSelector('slot', 'Slot Analytics', Icons.local_parking, isDesktop: false),
                   ],
                 );
               }
             },
           ),
+
+
         ],
       ),
     );
   }
 
-
-  Widget _buildTypeSelector(String type, String label, IconData icon) {
+  Widget _buildTypeSelector(String type, String label, IconData icon, {bool isDesktop = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isSelected = _searchType == type;
 
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _searchType = type;
-            _analyticsData = null;
-          });
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.indigo : Colors.transparent,
-            border: Border.all(
-              color: isSelected ? Colors.indigo : Colors.grey[300]!,
-              width: 1,
-            ),
-            borderRadius: BorderRadius.circular(8),
+    Widget selectorWidget = GestureDetector(
+      onTap: () {
+        setState(() {
+          _searchType = type;
+          _analyticsData = null;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          // Enhanced styling for dark mode
+          gradient: isSelected && isDark
+              ? LinearGradient(
+            colors: [
+              const Color(0xFF60A5FA),
+              const Color(0xFF3B82F6),
+            ],
+          )
+              : null,
+          color: isSelected
+              ? (isDark ? null : Colors.indigo)
+              : (isDark ? const Color(0xFF334155).withOpacity(0.3) : Colors.transparent),
+          border: Border.all(
+            color: isSelected
+                ? (isDark ? const Color(0xFF60A5FA) : Colors.indigo)
+                : (isDark ? const Color(0xFF475569) : Colors.grey[300]!),
+            width: isSelected ? 1.5 : 1,
           ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  color: isSelected ? Colors.white : Colors.grey[600],
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.grey[600],
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  ),
-                ),
-              ],
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: isSelected && isDark
+              ? [
+            BoxShadow(
+              color: const Color(0xFF60A5FA).withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
+          ]
+              : null,
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: isSelected
+                    ? Colors.white
+                    : (isDark ? const Color(0xFF94A3B8) : Colors.grey[600]),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark ? const Color(0xFFE2E8F0) : Colors.grey[600]),
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+
+    // Only wrap with Expanded for mobile layout
+    if (isDesktop) {
+      return selectorWidget;
+    } else {
+      return Expanded(child: selectorWidget);
+    }
   }
 
 
-
   Widget _buildEmptyState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(32),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.analytics_outlined,
-              size: 64,
-              color: Colors.grey[400],
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: isDark
+                  ? BoxDecoration(
+                color: const Color(0xFF334155).withOpacity(0.3),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: const Color(0xFF475569),
+                  width: 0.5,
+                ),
+              )
+                  : null,
+              child: Icon(
+                Icons.analytics_outlined,
+                size: 64,
+                color: isDark
+                    ? const Color(0xFF60A5FA).withOpacity(0.7)
+                    : Colors.grey[400],
+              ),
             ),
             const SizedBox(height: 16),
             Text(
               'Enter ${_searchType == 'user' ? 'user email' : 'slot ID'} to view analytics',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey[600],
+                color: isDark
+                    ? const Color(0xFF94A3B8)
+                    : Colors.grey[600],
               ),
               textAlign: TextAlign.center,
             ),
@@ -1524,7 +1822,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
     );
   }
-
 
   Widget _buildAnalyticsContent() {
     if (_analyticsData!['type'] == 'user') {
@@ -1589,8 +1886,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-
-
   Widget _buildSlotAnalytics() {
     final data = _analyticsData!;
     return Padding(
@@ -1650,6 +1945,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   Widget _buildStatColumn(String value, String label, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1658,17 +1955,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
-            color: color,
+            color: isDark
+                ? color.withOpacity(0.9) // Slightly dimmed for dark mode
+                : color,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(color: Colors.grey),
+          style: TextStyle(
+            color: isDark
+                ? const Color(0xFF94A3B8)
+                : Colors.grey,
+          ),
         ),
       ],
     );
   }
-
 
   Widget _buildSectionHeader(String title) {
     return Text(

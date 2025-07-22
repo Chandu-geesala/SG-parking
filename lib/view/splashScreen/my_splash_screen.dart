@@ -90,10 +90,25 @@ class _MysplashScreenState extends State<MysplashScreen> {
       await FirebaseAuth.instance.authStateChanges().first;
       User? user = FirebaseAuth.instance.currentUser;
 
-      // Force reload user data to get latest state
       if (user != null) {
-        await user.reload();
-        user = FirebaseAuth.instance.currentUser;
+        // Enhanced user reload with retry logic
+        for (int i = 0; i < 3; i++) {
+          try {
+            await user?.reload();
+            user = FirebaseAuth.instance.currentUser;
+            print('🔄 User reload attempt ${i + 1}: emailVerified = ${user?.emailVerified}');
+
+            if (user?.emailVerified == true) {
+              break; // Successfully got verified state
+            }
+
+            if (i < 2) { // Don't delay on last attempt
+              await Future.delayed(Duration(milliseconds: 500));
+            }
+          } catch (e) {
+            print('⚠️ User reload attempt ${i + 1} failed: $e');
+          }
+        }
       }
 
       print('🔍 Splash Screen Navigation Check:');
@@ -110,9 +125,22 @@ class _MysplashScreenState extends State<MysplashScreen> {
           _navigateToPage(AdminHomeScreen());
           return;
         } else if (user.emailVerified) {
-          print('🏠 Navigating to home screen (email verified)');
-          _navigateToPage(HomeScreen());
-          return;
+          // NEW: Check for pending signup data even when logged in and verified
+          print('🔍 User verified, checking for pending signup data...');
+          bool hasPendingSignup = await _signUpService.hasPendingSignup();
+
+          if (hasPendingSignup) {
+            Map<String, String> pendingData = await _signUpService.getPendingSignupData();
+            String? pendingEmail = pendingData['email'];
+
+            print('⏳ Found pending signup for verified user, navigating to verify email page');
+            _navigateToPage(VerifyEmailPage(email: pendingEmail ?? ''));
+            return;
+          } else {
+            print('🏠 No pending signup, navigating to home screen (email verified)');
+            _navigateToPage(HomeScreen());
+            return;
+          }
         } else {
           print('✉️ Navigating to verify email page (user logged in but not verified)');
           _navigateToPage(VerifyEmailPage(email: user.email ?? ''));

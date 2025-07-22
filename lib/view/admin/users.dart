@@ -218,45 +218,17 @@ class _AllUsersPageState extends State<AllUsersPage> {
     return DateFormat('MMM dd, yyyy').format(date);
   }
 
-  Widget _buildFilterChip(String label, String value) {
-    final isSelected = _selectedFilter == value;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedFilter = value;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6C5CE7) : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF6C5CE7) : Colors.grey.shade300,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey.shade700,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildUserCard(Map<String, dynamic> user, String userEmail) {
     return Container(
       margin: EdgeInsets.only(bottom: isWeb ? 0 : 12),
       padding: EdgeInsets.all(isWeb ? 20 : 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Theme.of(context).shadowColor.withOpacity(0.1),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -276,10 +248,14 @@ class _AllUsersPageState extends State<AllUsersPage> {
                 children: [
                   CircleAvatar(
                     radius: isWeb ? 28 : 24,
-                    backgroundColor: isAlloted ? Colors.green.shade100 : Colors.grey.shade100,
+                    backgroundColor: isAlloted
+                        ? Colors.green.withOpacity(0.15)
+                        : Theme.of(context).colorScheme.surfaceVariant,
                     child: Icon(
                       Icons.person,
-                      color: isAlloted ? Colors.green : Colors.grey,
+                      color: isAlloted
+                          ? Colors.green
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
                       size: isWeb ? 28 : 24,
                     ),
                   ),
@@ -288,14 +264,14 @@ class _AllUsersPageState extends State<AllUsersPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // Important: minimizes column height
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           user['name'] ?? 'No Name',
                           style: TextStyle(
                             fontSize: isWeb ? 18 : 16,
                             fontWeight: FontWeight.w600,
-                            color: Colors.black87,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -305,7 +281,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
                           userEmail,
                           style: TextStyle(
                             fontSize: isWeb ? 16 : 14,
-                            color: Colors.grey,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -319,13 +295,17 @@ class _AllUsersPageState extends State<AllUsersPage> {
                       vertical: isWeb ? 6 : 4,
                     ),
                     decoration: BoxDecoration(
-                      color: isAlloted ? Colors.green.shade100 : Colors.red.shade100,
+                      color: isAlloted
+                          ? Colors.green.withOpacity(0.15)
+                          : Colors.red.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       isAlloted ? 'Alloted' : 'Unalloted',
                       style: TextStyle(
-                        color: isAlloted ? Colors.green : Colors.red,
+                        color: isAlloted
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
                         fontSize: isWeb ? 12 : 10,
                         fontWeight: FontWeight.w600,
                       ),
@@ -341,6 +321,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
   }
 
 
+
   void _showUserBottomSheet(Map<String, dynamic> user, String userEmail) {
     if (isWeb) {
       // Use dialog for web instead of bottom sheet
@@ -348,6 +329,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
         context: context,
         builder: (context) => Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Theme.of(context).colorScheme.surface,
           child: Container(
             width: 800,
             height: 600,
@@ -358,17 +340,20 @@ class _AllUsersPageState extends State<AllUsersPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      '',
+                    Text(
+                      'User Information',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF2D3748),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                      icon: Icon(
+                        Icons.close,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
                     ),
                   ],
                 ),
@@ -402,9 +387,9 @@ class _AllUsersPageState extends State<AllUsersPage> {
           maxChildSize: 0.95,
           builder: (context, scrollController) {
             return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
                 children: [
@@ -414,7 +399,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
                     height: 4,
                     width: 40,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
+                      color: Theme.of(context).colorScheme.outline,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -442,27 +427,30 @@ class _AllUsersPageState extends State<AllUsersPage> {
     }
   }
 
-
   Widget _buildUserDetailsSection(Map<String, dynamic> user, String userEmail) {
     final vehicles = _parseVehicles(user['vehicle']);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'User Details',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF2D3748),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+              width: 1,
+            ),
           ),
           child: Column(
             children: [
@@ -485,12 +473,12 @@ class _AllUsersPageState extends State<AllUsersPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Slot Details',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF2D3748),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 16),
@@ -501,10 +489,18 @@ class _AllUsersPageState extends State<AllUsersPage> {
               return Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
+                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                    width: 1,
+                  ),
                 ),
-                child: const Center(child: CircularProgressIndicator()),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
               );
             }
 
@@ -513,17 +509,30 @@ class _AllUsersPageState extends State<AllUsersPage> {
             return Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                  width: 1,
+                ),
               ),
               child: userSlots.isNotEmpty ? Column(
                 children: userSlots.map((slot) => Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Column(
                     children: [
@@ -537,13 +546,13 @@ class _AllUsersPageState extends State<AllUsersPage> {
                     ],
                   ),
                 )).toList(),
-              ) : const Center(
+              ) : Center(
                 child: Padding(
-                  padding: EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(20),
                   child: Text(
                     'No slots allocated to this user',
                     style: TextStyle(
-                      color: Colors.grey,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                       fontSize: 16,
                     ),
                   ),
@@ -657,28 +666,27 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 120,
             child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
+              '$label:',
+              style: TextStyle(
                 fontWeight: FontWeight.w600,
-                color: Colors.grey,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                fontSize: 14,
               ),
             ),
           ),
-          const Text(': ', style: TextStyle(color: Colors.grey)),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 14,
-                color: Color(0xFF2D3748),
               ),
             ),
           ),
@@ -686,6 +694,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
       ),
     );
   }
+
 
   Future<void> _selectMonth() async {
     final DateTime? picked = await showDatePicker(
@@ -714,8 +723,12 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: isDark ? const Color(0xFF0D1117) : Colors.grey.shade50,
       appBar: AppBar(
         title: const Text(
           'All Users',
@@ -724,9 +737,15 @@ class _AllUsersPageState extends State<AllUsersPage> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        backgroundColor: const Color(0xFF6C5CE7),
+        backgroundColor: isDark
+            ? const Color(0xFF6C5CE7)
+            : const Color(0xFF6C5CE7),
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+        ),
       ),
       body: Center(
         child: Container(
@@ -736,7 +755,42 @@ class _AllUsersPageState extends State<AllUsersPage> {
               // Search and Filter Section
               Container(
                 padding: EdgeInsets.all(isWeb ? 24 : 16),
-                color: Colors.white,
+                decoration: BoxDecoration(
+                  gradient: isDark
+                      ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF1E1E2E),
+                      const Color(0xFF2A2A3A),
+                      const Color(0xFF1A1A2E),
+                    ],
+                  )
+                      : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white,
+                      const Color(0xFF6C5CE7).withOpacity(0.02),
+                      Colors.white,
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDark
+                          ? const Color(0xFF6C5CE7).withOpacity(0.1)
+                          : colorScheme.shadow.withOpacity(0.08),
+                      blurRadius: isDark ? 15 : 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  border: isDark
+                      ? Border.all(
+                    color: const Color(0xFF6C5CE7).withOpacity(0.2),
+                    width: 1,
+                  )
+                      : null,
+                ),
                 child: Column(
                   children: [
                     // Search Bar - constrain width on web
@@ -744,14 +798,50 @@ class _AllUsersPageState extends State<AllUsersPage> {
                       width: isWeb ? 600 : double.infinity,
                       child: TextField(
                         controller: _searchController,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : colorScheme.onSurface,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Search users by name, email, phone, or vehicle...',
-                          prefixIcon: const Icon(Icons.search),
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.6)
+                                : colorScheme.onSurface.withOpacity(0.6),
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: isDark
+                                ? const Color(0xFF6C5CE7).withOpacity(0.8)
+                                : const Color(0xFF6C5CE7),
+                          ),
                           filled: true,
-                          fillColor: Colors.grey.shade100,
+                          fillColor: isDark
+                              ? const Color(0xFF2A2A3A).withOpacity(0.8)
+                              : Colors.grey.shade100,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
+                            borderSide: isDark
+                                ? BorderSide(
+                              color: const Color(0xFF6C5CE7).withOpacity(0.3),
+                              width: 1,
+                            )
+                                : BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: isDark
+                                ? BorderSide(
+                              color: const Color(0xFF6C5CE7).withOpacity(0.3),
+                              width: 1,
+                            )
+                                : BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: const Color(0xFF6C5CE7),
+                              width: 2,
+                            ),
                           ),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
@@ -787,78 +877,238 @@ class _AllUsersPageState extends State<AllUsersPage> {
               ),
               // Users List - use GridView for web
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: _firestore.collection('users').snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Text('Error: ${snapshot.error}'),
-                      );
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    }
-
-                    final users = snapshot.data?.docs ?? [];
-
-                    if (users.isEmpty) {
-                      return const Center(
-                        child: Text('No users found'),
-                      );
-                    }
-
-                    return FutureBuilder<List<QueryDocumentSnapshot>>(
-                      future: _filterUsers(users),
-                      builder: (context, filterSnapshot) {
-                        if (filterSnapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-
-                        final filteredUsers = filterSnapshot.data ?? [];
-
-                        if (filteredUsers.isEmpty) {
-                          return const Center(
-                            child: Text('No users match your search criteria'),
-                          );
-                        }
-
-                        // Replace ListView.builder with responsive grid/list
-                        return isWeb
-                            ? GridView.builder(
-                          padding: const EdgeInsets.all(24),
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: MediaQuery.of(context).size.width > 1200 ? 3 : 2,
-                            childAspectRatio: 4,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF0D1117) : Colors.grey.shade50,
+                  ),
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _firestore.collection('users').snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: isDark
+                                      ? Colors.red.withOpacity(0.1)
+                                      : colorScheme.shadow.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  size: 48,
+                                  color: isDark ? Colors.red.shade400 : Colors.red,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Error: ${snapshot.error}',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : colorScheme.onSurface,
+                                    fontSize: 16,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
                           ),
-                          itemCount: filteredUsers.length,
-                          itemBuilder: (context, index) {
-                            final doc = filteredUsers[index];
-                            final userData = doc.data() as Map<String, dynamic>;
-                            return _buildUserCard(userData, doc.id);
-                          },
-                        )
-                            : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: filteredUsers.length,
-                          itemBuilder: (context, index) {
-                            final doc = filteredUsers[index];
-                            final userData = doc.data() as Map<String, dynamic>;
-                            return _buildUserCard(userData, doc.id);
-                          },
                         );
-                      },
-                    );
-                  },
+                      }
+
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  const Color(0xFF6C5CE7),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Loading users...',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white.withOpacity(0.7) : colorScheme.onSurface.withOpacity(0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final users = snapshot.data?.docs ?? [];
+
+                      if (users.isEmpty) {
+                        return Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: isDark
+                                      ? const Color(0xFF6C5CE7).withOpacity(0.1)
+                                      : colorScheme.shadow.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.people_outline,
+                                  size: 48,
+                                  color: isDark
+                                      ? const Color(0xFF6C5CE7).withOpacity(0.8)
+                                      : const Color(0xFF6C5CE7),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No users found',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : colorScheme.onSurface,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      return FutureBuilder<List<QueryDocumentSnapshot>>(
+                        future: _filterUsers(users),
+                        builder: (context, filterSnapshot) {
+                          if (filterSnapshot.connectionState == ConnectionState.waiting) {
+                            return Center(
+                              child: CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  const Color(0xFF6C5CE7),
+                                ),
+                              ),
+                            );
+                          }
+
+                          final filteredUsers = filterSnapshot.data ?? [];
+
+                          if (filteredUsers.isEmpty) {
+                            return Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: isDark
+                                          ? const Color(0xFF6C5CE7).withOpacity(0.1)
+                                          : colorScheme.shadow.withOpacity(0.1),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.search_off,
+                                      size: 48,
+                                      color: isDark
+                                          ? const Color(0xFF6C5CE7).withOpacity(0.8)
+                                          : const Color(0xFF6C5CE7),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No users match your search criteria',
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white : colorScheme.onSurface,
+                                        fontSize: 16,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          // Replace ListView.builder with responsive grid/list
+                          return isWeb
+                              ? GridView.builder(
+                            padding: const EdgeInsets.all(24),
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: MediaQuery.of(context).size.width > 1200 ? 3 : 2,
+                              childAspectRatio: 4,
+                              crossAxisSpacing: 16,
+                              mainAxisSpacing: 16,
+                            ),
+                            itemCount: filteredUsers.length,
+                            itemBuilder: (context, index) {
+                              final doc = filteredUsers[index];
+                              final userData = doc.data() as Map<String, dynamic>;
+                              return _buildUserCard(userData, doc.id);
+                            },
+                          )
+                              : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredUsers.length,
+                            itemBuilder: (context, index) {
+                              final doc = filteredUsers[index];
+                              final userData = doc.data() as Map<String, dynamic>;
+                              return _buildUserCard(userData, doc.id);
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+// You'll also need to update your _buildFilterChip method:
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _selectedFilter == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedFilter = value;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF6C5CE7) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF6C5CE7) : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey.shade700,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            fontSize: 12,
           ),
         ),
       ),

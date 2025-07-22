@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:park_sg/view/splashScreen/my_splash_screen.dart';
+import 'dart:math' as math;
+import 'dart:ui'; // For ImageFilter
 import '../../viewModel/authService.dart';
 import 'auth_screen.dart';
-
 
 class VerifyEmailPage extends StatefulWidget {
   final String email;
@@ -14,21 +16,162 @@ class VerifyEmailPage extends StatefulWidget {
   State<VerifyEmailPage> createState() => _VerifyEmailPageState();
 }
 
-class _VerifyEmailPageState extends State<VerifyEmailPage> {
+class _VerifyEmailPageState extends State<VerifyEmailPage>
+    with TickerProviderStateMixin {
   final SignUpService _signUpService = SignUpService();
   bool? isVerified;
   bool isResending = false;
   StreamSubscription<bool>? emailVerificationSubscription;
 
+  // Animation Controllers
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late AnimationController _scaleController;
+  late AnimationController _backgroundAnimationController;
+  late AnimationController _pulseController;
+
+  // Animations
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _backgroundAnimation;
+  late Animation<double> _pulseAnimation;
+
+  // Add theme-related getters
+  ThemeData get _currentTheme {
+    final brightness = MediaQuery.of(context).platformBrightness;
+    return brightness == Brightness.dark ? _darkTheme : _lightTheme;
+  }
+
+  bool get isDarkMode {
+    final brightness = MediaQuery.of(context).platformBrightness;
+    return brightness == Brightness.dark;
+  }
+
+  ThemeData get _lightTheme => ThemeData(
+    brightness: Brightness.light,
+    primarySwatch: Colors.orange,
+    scaffoldBackgroundColor: Colors.grey.shade50,
+    cardColor: Colors.white,
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Colors.black87),
+      bodyMedium: TextStyle(color: Colors.black54),
+    ),
+  );
+
+  ThemeData get _darkTheme => ThemeData(
+    brightness: Brightness.dark,
+    primarySwatch: Colors.orange,
+    scaffoldBackgroundColor: const Color(0xFF121212),
+    cardColor: const Color(0xFF1E1E1E),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Colors.white),
+      bodyMedium: TextStyle(color: Colors.white70),
+    ),
+  );
+
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
+    _startEntryAnimation();
     _startEmailVerificationMonitor();
+
+    // Periodic check for signup data existence
+    Timer.periodic(Duration(seconds: 5), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      bool hasPendingSignup = await _signUpService.hasPendingSignup();
+      if (!hasPendingSignup) {
+        timer.cancel();
+        print('⚠️ Signup data disappeared, auto-cancelling');
+        await _cancelSignUp();
+      }
+    });
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _backgroundAnimationController = AnimationController(
+      duration: const Duration(seconds: 10),
+      vsync: this,
+    )..repeat();
+
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    ));
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.easeInOut,
+    ));
+
+    _backgroundAnimation = Tween<double>(
+      begin: 0.0,
+      end: 2 * math.pi,
+    ).animate(_backgroundAnimationController);
+
+    _pulseAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  void _startEntryAnimation() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _fadeController.forward();
+      _slideController.forward();
+    });
   }
 
   @override
   void dispose() {
     emailVerificationSubscription?.cancel();
+    _fadeController.dispose();
+    _slideController.dispose();
+    _scaleController.dispose();
+    _backgroundAnimationController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -38,6 +181,14 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
       setState(() {
         isVerified = verified;
       });
+
+      bool hasPendingSignup = await _signUpService.hasPendingSignup();
+
+      if (!hasPendingSignup) {
+        print('⚠️ No signup data found, cancelling verification process');
+        await _cancelSignUp();
+        return;
+      }
 
       if (verified) {
         await Future.delayed(const Duration(seconds: 1));
@@ -55,6 +206,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
 
   Future<void> _resendVerificationEmail() async {
     setState(() => isResending = true);
+    HapticFeedback.lightImpact();
     final result = await _signUpService.resendEmailVerification();
     setState(() => isResending = false);
     _showMessage(result['message']);
@@ -62,39 +214,29 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
 
   Future<void> _cancelSignUp() async {
     try {
-      // Show loading indicator
+      HapticFeedback.mediumImpact();
+
+      // Show loading indicator with glassmorphism
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => Center(
-          child: CircularProgressIndicator(),
-        ),
+        builder: (context) => _buildLoadingDialog(),
       );
 
-      // 1. Clear all signup data from storage
       await _signUpService.clearSignupData();
-
-      // 2. Sign out from Firebase to remove the unverified user session
-      await FirebaseAuth.instance.signOut();
-
-      // 3. Cancel the email verification monitoring
       emailVerificationSubscription?.cancel();
 
-      // 4. Optionally delete the unverified Firebase user account
-      // (This is more thorough but optional)
-      /*
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null && !currentUser.emailVerified) {
-      await currentUser.delete();
-    }
-    */
-
-      // Close loading dialog
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.emailVerified) {
+        await currentUser.delete();
       }
 
-      // 5. Navigate to landing page and clear entire navigation stack
+      await FirebaseAuth.instance.signOut();
+
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => MysplashScreen()),
@@ -102,11 +244,9 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
         );
       }
 
-      // Show success message
       _showMessage('Signup cancelled successfully');
 
     } catch (e) {
-      // Close loading dialog if still open
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -116,157 +256,628 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
     }
   }
 
+  Widget _buildLoadingDialog() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 50),
+        decoration: BoxDecoration(
+          color: isDarkMode
+              ? Colors.white.withOpacity(0.12)
+              : Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(25),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDarkMode ? 0.4 : 0.15),
+              blurRadius: 30,
+              spreadRadius: 5,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(25),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Padding(
+              padding: const EdgeInsets.all(35),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    'Cancelling signup',
+                    style: TextStyle(
+                      color: _currentTheme.textTheme.bodyLarge!.color,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
   void _showMessage(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: Duration(seconds: 2)),
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.orange,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // Use Stack to place gradient behind everything
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Gradient background
-          Container(
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 600;
+
+    return Theme(
+      data: _currentTheme,
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: Container(
+          width: screenWidth,
+          height: screenHeight,
+          child: AnimatedBuilder(
+            animation: _backgroundAnimation,
+            builder: (context, child) {
+              return Container(
+
+
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: isDarkMode
+                        ? [
+                      const Color(0xFF1A1A2E),
+                      const Color(0xFF16213E),
+                      const Color(0xFF0F3460),
+                    ]
+                        : [
+                      const Color(0xFFE67E22), // SenecaGlobal Orange
+                      const Color(0x7E6DDC94), // Lighter Orange variant
+                      const Color(0xFF8FBC8F), // SenecaGlobal Olive Green
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    transform: GradientRotation(_backgroundAnimation.value),
+                  ),
+                ),
+
+                child: Stack(
+                  children: [
+                    // Animated background particles
+                    ...List.generate(5, (index) => _buildAnimatedParticle(index)),
+
+                    // Main content
+                    SafeArea(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 20 : 40,
+                          vertical: 20,
+                        ),
+                        child: Container(
+                          constraints: BoxConstraints(
+                            minHeight: screenHeight - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom - 40,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: <Widget>[
+                              // Back button
+                              _buildBackButton(),
+                              SizedBox(height: isSmallScreen ? 20 : 40),
+                              // Main verification card
+                              _buildGlassVerificationContainer(isSmallScreen),
+                              const SizedBox(height: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedParticle(int index) {
+    return AnimatedBuilder(
+      animation: _backgroundAnimation,
+      builder: (context, child) {
+        final double offset = index * 0.5;
+        final double x = 50 + (index * 80) + 30 * math.sin(_backgroundAnimation.value + offset);
+        final double y = 100 + (index * 120) + 20 * math.cos(_backgroundAnimation.value + offset);
+
+        return Positioned(
+          left: x,
+          top: y,
+          child: Container(
+            width: 6 + (index * 2),
+            height: 6 + (index * 2),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.orange.shade400,
-                  Colors.white,
-                  Colors.green.shade400,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+              shape: BoxShape.circle,
+              color: (isDarkMode ? Colors.orange : Colors.white)
+                  .withOpacity(0.4),
+              boxShadow: [
+                BoxShadow(
+                  color: (isDarkMode ? Colors.orange : Colors.white)
+                      .withOpacity(0.3),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBackButton() {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            _cancelSignUp();
+          },
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDarkMode
+                  ? Colors.white.withOpacity(0.15)
+                  : Colors.white.withOpacity(0.25),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.3),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDarkMode ? 0.2 : 0.1),
+                  blurRadius: 15,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                child: Icon(
+                  Icons.arrow_back_ios,
+                  color: isDarkMode ? Colors.white : Colors.indigo.shade700,
+                  size: 20,
+                ),
               ),
             ),
           ),
-          // Centered card
-          Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.10),
-                    spreadRadius: 3,
-                    blurRadius: 14,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.email_outlined, size: 70, color: Colors.orange),
-                  SizedBox(height: 22),
-                  Text(
-                    'Email Verification',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange.shade700,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'We sent a verification email to:',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    widget.email,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  SizedBox(height: 24),
-                  if (isVerified == null) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2)
-                        ),
-                        SizedBox(width: 10),
-                        Text("Checking verification...", style: TextStyle(fontSize: 15)),
-                      ],
-                    ),
-                  ] else if (isVerified == true) ...[
-                    Icon(Icons.verified, color: Colors.green, size: 48),
-                    SizedBox(height: 10),
-                    Text(
-                      '🎉 Your email is verified!',
-                      style: TextStyle(fontSize: 17, color: Colors.green[700], fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                    ),
-                  ] else ...[
-                    Icon(Icons.warning_amber, color: Colors.orange, size: 48),
-                    SizedBox(height: 10),
-                    Text(
-                      'Email not verified yet!',
-                      style: TextStyle(fontSize: 16, color: Colors.red[700], fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      '(Also Check Spam Folder)',
-                      style: TextStyle(fontSize: 14, color: Colors.black26, fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 5),
-                    AnimatedCheckingText(),
-                  ],
+        ),
+      ),
+    );
+  }
 
-                  SizedBox(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: isResending ? null : _resendVerificationEmail,
-                        icon: isResending
-                            ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange))
-                            : Icon(Icons.refresh, color: Colors.orange),
-                        label: Text(
-                          'Resend Email',
-                          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          shadowColor: Colors.orange,
-                          side: BorderSide(color: Colors.orange),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                      ElevatedButton(
-                        onPressed: _cancelSignUp,
-                        child: Text('Cancel', style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[400],
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
+  Widget _buildGlassVerificationContainer(bool isSmallScreen) {
+    return SlideTransition(
+      position: _slideAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Container(
+          width: double.infinity,
+          constraints: BoxConstraints(maxWidth: isSmallScreen ? 380 : 450),
+          margin: const EdgeInsets.symmetric(horizontal: 5),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.12)
+                : Colors.white.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(35),
+            border: Border.all(
+              color: isDarkMode
+                  ? Colors.white.withOpacity(0.2)
+                  : Colors.white.withOpacity(0.35),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isDarkMode
+                    ? Colors.black.withOpacity(0.4)
+                    : Colors.black.withOpacity(0.15),
+                blurRadius: 30,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(35),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDarkMode
+                        ? [
+                      Colors.white.withOpacity(0.05),
+                      Colors.white.withOpacity(0.02),
+                    ]
+                        : [
+                      Colors.white.withOpacity(0.15),
+                      Colors.white.withOpacity(0.08),
                     ],
                   ),
-                ],
+                ),
+                padding: EdgeInsets.all(isSmallScreen ? 30 : 40),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Email icon with pulse animation
+
+                    // Title
+                    _buildTitle(),
+                    SizedBox(height: isSmallScreen ? 15 : 20),
+
+                    // Description and email
+                    _buildEmailDescription(),
+                    SizedBox(height: isSmallScreen ? 20 : 25),
+
+                    // Spam warning
+                    _buildSpamWarning(),
+                    SizedBox(height: isSmallScreen ? 20 : 25),
+
+                    // Verification status
+                    _buildVerificationStatus(),
+                    SizedBox(height: isSmallScreen ? 25 : 30),
+
+                    // Action buttons
+                    _buildActionButtons(isSmallScreen),
+                  ],
+                ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildTitle() {
+    return Text(
+      'Email Verification',
+      style: TextStyle(
+        color: isDarkMode ? Colors.white : Colors.indigo.shade700,
+        fontSize: 28,
+        fontFamily: "Noto",
+        fontWeight: FontWeight.bold,
+      ),
+      textAlign: TextAlign.center,
+    );
+  }
+
+  Widget _buildEmailDescription() {
+    return Column(
+      children: [
+
+        Text(
+          'We sent a verification email to:',
+          style: TextStyle(
+            color: _currentTheme.textTheme.bodyMedium!.color,
+            fontSize: 16,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 15),
+        Text(
+          'After clicking the link , please return to this page to continue.',
+          style: TextStyle(
+            color: Colors.orange,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.1)
+                : Colors.white.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: Colors.orange.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Text(
+            widget.email,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Colors.orange,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpamWarning() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDarkMode
+            ? Colors.amber.withOpacity(0.2)
+            : Colors.amber.shade50,
+        border: Border.all(
+          color: Colors.amber.withOpacity(0.5),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.withOpacity(0.2),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.warning_amber,
+            color: Colors.amber.shade700,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Please check your SPAM folder!',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.amber.shade800,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
         ],
       ),
     );
   }
-}
 
+  Widget _buildVerificationStatus() {
+    if (isVerified == null) {
+      return Column(
+        children: [
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+            strokeWidth: 3,
+          ),
+          const SizedBox(height: 15),
+          AnimatedCheckingText(),
+        ],
+      );
+    } else if (isVerified == true) {
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.green.withOpacity(0.2),
+              border: Border.all(
+                color: Colors.green.withOpacity(0.5),
+                width: 2,
+              ),
+            ),
+            child: Icon(
+              Icons.verified,
+              color: Colors.green,
+              size: 40,
+            ),
+          ),
+          const SizedBox(height: 15),
+          Text(
+            '🎉 Your email is verified!',
+            style: TextStyle(
+              fontSize: 18,
+              color: Colors.green,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      );
+    } else {
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.orange.withOpacity(0.2),
+              border: Border.all(
+                color: Colors.orange.withOpacity(0.5),
+                width: 2,
+              ),
+            ),
+            child: Icon(
+              Icons.warning_amber,
+              color: Colors.orange,
+              size: 40,
+            ),
+          ),
+          const SizedBox(height: 15),
+          Text(
+            'Email not verified yet!',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          AnimatedCheckingText(),
+        ],
+      );
+    }
+  }
+
+  Widget _buildActionButtons(bool isSmallScreen) {
+    return isSmallScreen
+        ? Column(
+      children: [
+        _buildResendButton(),
+        const SizedBox(height: 15),
+        _buildCancelButton(),
+      ],
+    )
+        : Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: _buildResendButton(),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: _buildCancelButton(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResendButton() {
+    return GestureDetector(
+      onTap: isResending ? null : _resendVerificationEmail,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        width: double.infinity,
+        height: 50,
+        decoration: BoxDecoration(
+          gradient: !isResending
+              ? LinearGradient(
+            colors: [Colors.orange.shade400, Colors.orange.shade600],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+              : null,
+          color: isResending ? Colors.grey.shade400 : null,
+          borderRadius: BorderRadius.circular(25),
+          boxShadow: [
+            BoxShadow(
+              color: (!isResending ? Colors.orange.shade400 : Colors.grey).withOpacity(0.4),
+              blurRadius: 15,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Center(
+          child: isResending
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              strokeWidth: 2,
+            ),
+          )
+              : Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.refresh, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                "RESEND EMAIL",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontFamily: "Noto",
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCancelButton() {
+    return GestureDetector(
+      onTap: _cancelSignUp,
+      child: Container(
+        width: double.infinity,
+        height: 50,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.red.shade400, Colors.red.shade600],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(25),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.shade400.withOpacity(0.4),
+              blurRadius: 15,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            "CANCEL",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontFamily: "Noto",
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class AnimatedCheckingText extends StatefulWidget {
   @override
@@ -309,8 +920,9 @@ class _AnimatedCheckingTextState extends State<AnimatedCheckingText>
       style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w500,
-        color: Colors.grey[800],
+        color: Colors.grey[600],
       ),
+      textAlign: TextAlign.center,
     );
   }
 }

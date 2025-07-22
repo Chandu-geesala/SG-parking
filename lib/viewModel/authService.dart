@@ -8,6 +8,9 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:universal_html/html.dart' as html;
+
+
 class SignUpService {
   static const String _signupDataKey = 'signup_data';
   static const String _signupStageKey = 'signup_stage';
@@ -28,12 +31,7 @@ class SignUpService {
   bool get isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   /// Generate random temp ID for web users
-  String _generateTempId() {
-    final random = Random();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final randomNum = random.nextInt(999999);
-    return 'temp_${timestamp}_$randomNum';
-  }
+
 
   /// Save signup data (platform-specific)
   Future<bool> saveSignupData(Map<String, String> userData) async {
@@ -64,34 +62,29 @@ class SignUpService {
   }
 
   /// Save signup data for web (Firestore temp storage)
+  /// Save signup data for web (SessionStorage)
   Future<bool> _saveSignupDataWeb(Map<String, String> userData) async {
     try {
-      // Generate temp ID if not exists
-      if (_webTempId == null) {
-        _webTempId = _generateTempId();
+      if (!kIsWeb) {
+        print('❌ Web storage called on non-web platform');
+        return false;
       }
 
-      final firestore = FirebaseFirestore.instance;
-      final docRef = firestore.collection('temp_data').doc(_webTempId);
-
-      // Save to Firestore with auto-delete timestamp
-      await docRef.set({
-        'userData': userData,
-        'stage': _webSignupStage,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(DateTime.now().add(Duration(days: 2))),
-      });
+      final userDataJson = jsonEncode(userData);
+      html.window.sessionStorage[_signupDataKey] = userDataJson;
 
       // Also store in memory for quick access
       _webSignupData = Map.from(userData);
 
-      print('📝 Web signup data saved with temp ID: $_webTempId');
+      print('📝 Web signup data saved to sessionStorage');
       return true;
     } catch (e) {
       print('❌ Error saving web signup data: $e');
       return false;
     }
   }
+
+
 
   /// Load signup data (platform-specific)
   Future<Map<String, String>> loadSignupData() async {
@@ -132,29 +125,34 @@ class SignUpService {
   }
 
   /// Load signup data for web
+  /// Load signup data for web (SessionStorage)
+
   Future<Map<String, String>> _loadSignupDataWeb() async {
     try {
+      if (!kIsWeb) {
+        print('❌ Web storage called on non-web platform');
+        return {};
+      }
+
       // First check memory
       if (_webSignupData.isNotEmpty) {
         print('📖 Web signup data loaded from memory: ${_webSignupData.keys.toList()}');
         return _webSignupData;
       }
 
-      // If memory is empty and we have temp ID, try to load from Firestore
-      if (_webTempId != null) {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore.collection('temp_data').doc(_webTempId);
-        final doc = await docRef.get();
+      // Load from sessionStorage
+      final userDataJson = html.window.sessionStorage[_signupDataKey];
 
-        if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>;
-          final userData = Map<String, String>.from(data['userData'] ?? {});
-          _webSignupData = userData;
-          _webSignupStage = data['stage'] ?? stageInitial;
+      if (userDataJson != null) {
+        Map<String, dynamic> userData = jsonDecode(userDataJson);
+        Map<String, String> result = {};
+        userData.forEach((key, value) {
+          result[key] = value.toString();
+        });
+        _webSignupData = result;
 
-          print('📖 Web signup data loaded from Firestore: ${userData.keys.toList()}');
-          return userData;
-        }
+        print('📖 Web signup data loaded from sessionStorage: ${result.keys.toList()}');
+        return result;
       }
 
       print('📖 No web signup data found');
@@ -164,6 +162,7 @@ class SignUpService {
       return {};
     }
   }
+
 
   /// Clear signup data (platform-specific)
   Future<bool> clearSignupData() async {
@@ -195,21 +194,24 @@ class SignUpService {
   }
 
   /// Clear signup data for web
+  /// Clear signup data for web (SessionStorage)
+
   Future<bool> _clearSignupDataWeb() async {
     try {
+      if (!kIsWeb) {
+        print('❌ Web storage called on non-web platform');
+        return false;
+      }
+
       // Clear memory
       _webSignupData.clear();
       _webSignupStage = stageInitial;
 
-      // Clear Firestore temp data
-      if (_webTempId != null) {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore.collection('temp_data').doc(_webTempId);
-        await docRef.delete();
-        _webTempId = null;
-      }
+      // Clear sessionStorage
+      html.window.sessionStorage.remove(_signupDataKey);
+      html.window.sessionStorage.remove(_signupStageKey);
 
-      print('🗑️ Web signup data cleared');
+      print('🗑️ Web signup data cleared from sessionStorage');
       return true;
     } catch (e) {
       print('❌ Error clearing web signup data: $e');
@@ -245,16 +247,17 @@ class SignUpService {
   }
 
   /// Set signup stage for web
+  /// Set signup stage for web (SessionStorage)
+
   Future<bool> _setSignupStageWeb(String stage) async {
     try {
-      _webSignupStage = stage;
-
-      // Update in Firestore if temp ID exists
-      if (_webTempId != null) {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore.collection('temp_data').doc(_webTempId);
-        await docRef.update({'stage': stage});
+      if (!kIsWeb) {
+        print('❌ Web storage called on non-web platform');
+        return false;
       }
+
+      _webSignupStage = stage;
+      html.window.sessionStorage[_signupStageKey] = stage;
 
       print('📊 Web signup stage set to: $stage');
       return true;
@@ -292,30 +295,27 @@ class SignUpService {
   }
 
   /// Get signup stage for web
+  /// Get signup stage for web (SessionStorage)
+
   Future<String> _getSignupStageWeb() async {
     try {
+      if (!kIsWeb) {
+        print('❌ Web storage called on non-web platform');
+        return stageInitial;
+      }
+
       // First check memory
       if (_webSignupStage != stageInitial) {
         print('📊 Web current signup stage (memory): $_webSignupStage');
         return _webSignupStage;
       }
 
-      // If memory is empty and we have temp ID, try to load from Firestore
-      if (_webTempId != null) {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore.collection('temp_data').doc(_webTempId);
-        final doc = await docRef.get();
+      // Load from sessionStorage
+      final stage = html.window.sessionStorage[_signupStageKey] ?? stageInitial;
+      _webSignupStage = stage;
 
-        if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>;
-          _webSignupStage = data['stage'] ?? stageInitial;
-          print('📊 Web current signup stage (Firestore): $_webSignupStage');
-          return _webSignupStage;
-        }
-      }
-
-      print('📊 Web current signup stage (default): $stageInitial');
-      return stageInitial;
+      print('📊 Web current signup stage (sessionStorage): $stage');
+      return stage;
     } catch (e) {
       print('❌ Error getting web signup stage: $e');
       return stageInitial;
@@ -323,48 +323,8 @@ class SignUpService {
   }
 
   /// Clean up expired temp data (call this periodically or on app start)
-  Future<void> cleanupExpiredTempData() async {
-    if (!isWeb) return; // Only for web
-
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final now = Timestamp.now();
-
-      final expiredDocs = await firestore
-          .collection('temp_data')
-          .where('expiresAt', isLessThan: now)
-          .get();
-
-      for (var doc in expiredDocs.docs) {
-        await doc.reference.delete();
-      }
-
-      print('🧹 Cleaned up ${expiredDocs.docs.length} expired temp data entries');
-    } catch (e) {
-      print('❌ Error cleaning up expired temp data: $e');
-    }
-  }
 
   /// Initialize web temp ID (call this on app start for web)
-  Future<void> initializeWebTempId() async {
-    if (!isWeb) return;
-
-    try {
-      // Try to load existing temp data to restore session
-      final firestore = FirebaseFirestore.instance;
-
-      // Clean up expired data first
-      await cleanupExpiredTempData();
-
-      // For now, we'll generate a new temp ID each time
-      // In a real app, you might want to store this in browser storage
-      _webTempId = _generateTempId();
-
-      print('🔄 Web temp ID initialized: $_webTempId');
-    } catch (e) {
-      print('❌ Error initializing web temp ID: $e');
-    }
-  }
 
   String extractNameFromEmail(String email) {
     if (email.isEmpty) return '';
@@ -934,15 +894,17 @@ class SignUpService {
   }
 
   /// Initialize the service (call this on app start)
+  /// Initialize the service (call this on app start)
+  ///
+  ///
   Future<void> initialize() async {
-    if (isWeb) {
-      await initializeWebTempId();
-      await cleanupExpiredTempData();
-    } else {
+    if (!isWeb) {
       setupFCMTokenRefreshListener();
     }
     print('🚀 SignUpService initialized for ${isWeb ? 'web' : 'mobile'}');
   }
+
+
 
   /// Get admin status (platform-specific)
   Future<bool> getAdminStatus() async {
@@ -987,66 +949,10 @@ class SignUpService {
   */
 
   /// Cleanup method to be called periodically (e.g., via Cloud Functions)
-  static Future<void> cleanupExpiredTempDataBatch() async {
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final now = Timestamp.now();
-
-      final expiredQuery = firestore
-          .collection('temp_data')
-          .where('expiresAt', isLessThan: now)
-          .limit(500); // Process in batches
-
-      final expiredDocs = await expiredQuery.get();
-
-      if (expiredDocs.docs.isEmpty) {
-        print('🧹 No expired temp data to clean up');
-        return;
-      }
-
-      final batch = firestore.batch();
-      for (var doc in expiredDocs.docs) {
-        batch.delete(doc.reference);
-      }
-
-      await batch.commit();
-      print('🧹 Batch cleaned up ${expiredDocs.docs.length} expired temp data entries');
-    } catch (e) {
-      print('❌ Error in batch cleanup: $e');
-    }
-  }
 
   /// Restore web session (call this when user returns to web app)
-  Future<bool> restoreWebSession() async {
-    if (!isWeb) return false;
-
-    try {
-      // Check if user is already logged in
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return false;
-
-      // Try to restore temp data if available
-      await loadSignupData();
-
-      print('🔄 Web session restored for user: ${user.email}');
-      return true;
-    } catch (e) {
-      print('❌ Error restoring web session: $e');
-      return false;
-    }
-  }
 
   /// Enhanced error handling for web-specific issues
-  Future<void> handleWebStorageError(dynamic error) async {
-    print('❌ Web storage error: $error');
 
-    try {
-      // Try to reinitialize
-      await initializeWebTempId();
-      print('🔄 Web storage reinitialized after error');
-    } catch (e) {
-      print('❌ Failed to reinitialize web storage: $e');
-    }
-  }
 
 }

@@ -8,6 +8,10 @@ import '../../viewModel/authService.dart';
 import '../forgot_password.dart';
 import '../home.dart';
 import '../splashScreen/my_splash_screen.dart';
+// 1. Add these imports at the top of your file:
+import 'dart:math' as math;
+import 'dart:ui'; // For ImageFilter
+
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -28,7 +32,41 @@ class _LandingPageState extends State<LandingPage>
 
   bool isPasswordVisible = false;
   bool isKeyboardVisible = false;
+  late AnimationController _backgroundAnimationController;
+  late Animation<double> _backgroundAnimation;
 
+  // Add theme-related getters
+  ThemeData get _currentTheme {
+    final brightness = MediaQuery.of(context).platformBrightness;
+    return brightness == Brightness.dark ? _darkTheme : _lightTheme;
+  }
+
+  bool get isDarkMode {
+    final brightness = MediaQuery.of(context).platformBrightness;
+    return brightness == Brightness.dark;
+  }
+
+  ThemeData get _lightTheme => ThemeData(
+    brightness: Brightness.light,
+    primarySwatch: Colors.orange,
+    scaffoldBackgroundColor: Colors.grey.shade50,
+    cardColor: Colors.white,
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Colors.black87),
+      bodyMedium: TextStyle(color: Colors.black54),
+    ),
+  );
+
+  ThemeData get _darkTheme => ThemeData(
+    brightness: Brightness.dark,
+    primarySwatch: Colors.orange,
+    scaffoldBackgroundColor: const Color(0xFF121212),
+    cardColor: const Color(0xFF1E1E1E),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: Colors.white),
+      bodyMedium: TextStyle(color: Colors.white70),
+    ),
+  );
   // Animation Controllers
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -67,6 +105,12 @@ class _LandingPageState extends State<LandingPage>
       vsync: this,
     );
 
+    // Add background animation controller
+    _backgroundAnimationController = AnimationController(
+      duration: const Duration(seconds: 10),
+      vsync: this,
+    )..repeat();
+
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -90,7 +134,16 @@ class _LandingPageState extends State<LandingPage>
       parent: _scaleController,
       curve: Curves.easeInOut,
     ));
+
+    // Add background animation
+    _backgroundAnimation = Tween<double>(
+      begin: 0.0,
+      end: 2 * math.pi,
+    ).animate(_backgroundAnimationController);
   }
+
+
+
 
   void _setupKeyboardListener() {
     _emailFocusNode.addListener(_onFocusChange);
@@ -123,12 +176,15 @@ class _LandingPageState extends State<LandingPage>
     _fadeController.dispose();
     _slideController.dispose();
     _scaleController.dispose();
+    _backgroundAnimationController.dispose(); // Add this line
     _emailFocusNode.dispose();
     _passwordFocusNode.dispose();
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
   }
+
+
 
   void _handleLogin() async {
     if (!_formkey.currentState!.validate()) return;
@@ -214,162 +270,279 @@ class _LandingPageState extends State<LandingPage>
     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     final bool isKeyboardOpen = keyboardHeight > 0;
 
-    return Scaffold(
-      backgroundColor: Colors.orange.shade400,
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          // Gradient background
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.orange.shade400,
-                  Colors.white,
-                  Colors.green.shade400,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+    return Theme(
+      data: _currentTheme,
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: AnimatedBuilder(
+          animation: _backgroundAnimation,
+          builder: (context, child) {
+            return Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isDarkMode
+                      ? [
+                    const Color(0xFF1A1A2E),
+                    const Color(0xFF16213E),
+                    const Color(0xFF0F3460),
+                  ]
+                      : [
+                    const Color(0xFFE67E22), // SenecaGlobal Orange
+                    const Color(0x7E6DDC94), // Lighter Orange variant
+                    const Color(0xFF8FBC8F), // SenecaGlobal Olive Green
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  transform: GradientRotation(_backgroundAnimation.value),
+                ),
               ),
-            ),
-          ),
-          SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: IntrinsicHeight(
-                      child: AnimatedPadding(
-                        duration: const Duration(milliseconds: 350),
-                        curve: Curves.easeOutCubic,
-                        // Smoothly reduce top padding and add bottom padding as the keyboard opens
-                        padding: EdgeInsets.only(
-                          top: isKeyboardOpen ? 30 : 80,
-                          left: 0,
-                          right: 0,
-                          bottom: isKeyboardOpen ? keyboardHeight : 40,
-                        ),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: <Widget>[
-                              // Logo (always visible, no more shrinking)
-                              FadeTransition(
-                                opacity: _fadeAnimation,
-                                child: SizedBox(
-                                  width: 220,
-                                  height: 100,
-                                  child: Image.asset(
-                                    'assets/txt.png',
-                                    fit: BoxFit.contain,
-                                  ),
+              child: Stack(
+                children: [
+                  // Animated background particles
+                  ...List.generate(5, (index) => _buildAnimatedParticle(index)),
+
+                  // Main content
+                  SafeArea(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                            child: IntrinsicHeight(
+                              child: AnimatedPadding(
+                                duration: const Duration(milliseconds: 350),
+                                curve: Curves.easeOutCubic,
+                                padding: EdgeInsets.only(
+                                  top: isKeyboardOpen ? 30 : 10,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: isKeyboardOpen ? keyboardHeight : 40,
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              // Welcome Texts (always visible)
-                              SlideTransition(
-                                position: _slideAnimation,
-                                child: FadeTransition(
-                                  opacity: _fadeAnimation,
+                                child: Center(
                                   child: Column(
-                                    children: [
-                                      const Text(
-                                        "Welcome Back",
-                                        style: TextStyle(
-                                          color: Colors.indigo,
-                                          fontSize: 26,
-                                          fontFamily: "Noto",
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      const Text(
-                                        "sign in to access your account",
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 16,
-                                        ),
-                                      ),
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: <Widget>[
+                                      // Logo with glass container
+                                      _buildLogoSection(),
+                                      const SizedBox(height: 70),
+                                      // Welcome Texts
+                                      _buildWelcomeSection(),
+                                      const SizedBox(height: 28),
+                                      // Login form with glass effect
+                                      _buildGlassLoginContainer(),
+                                      const SizedBox(height: 20),
                                     ],
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 28),
-                              // Login form fields
-                              _buildLoginFields(),
-                              const SizedBox(height: 16),
-                              // Login button
-                              _buildLoginButton(),
-                              const SizedBox(height: 16),
-                              // Sign up section
-                              _buildSignUpSection(),
-                              const SizedBox(height: 20),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-        ],
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
 
+  Widget _buildAnimatedParticle(int index) {
+    return AnimatedBuilder(
+      animation: _backgroundAnimation,
+      builder: (context, child) {
+        final double offset = index * 0.5;
+        final double x = 50 + (index * 80) + 30 * math.sin(_backgroundAnimation.value + offset);
+        final double y = 100 + (index * 120) + 20 * math.cos(_backgroundAnimation.value + offset);
+
+        return Positioned(
+          left: x,
+          top: y,
+          child: Container(
+            width: 6 + (index * 2),
+            height: 6 + (index * 2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: (isDarkMode ? Colors.orange : Colors.white)
+                  .withOpacity(0.3),
+              boxShadow: [
+                BoxShadow(
+                  color: (isDarkMode ? Colors.orange : Colors.white)
+                      .withOpacity(0.2),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLogoSection() {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5), // Less vertical padding
+        decoration: BoxDecoration(
+          color: _currentTheme.cardColor.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              spreadRadius: 5,
+            ),
+          ],
+        ),
+        child: Image.asset(
+          'assets/txt.png',
+          width: 200,
+          height: 100,
+        ),
+      ),
+    );
+  }
 
 
-
-
-
-
-  Widget _buildLoginFields() {
-    return Container(
-      key: const ValueKey("login"),
-      width: 300,
-      padding: const EdgeInsets.all(10),
-      child: Form(
-        key: _formkey,
+  Widget _buildWelcomeSection() {
+    return SlideTransition(
+      position: _slideAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildTextFieldContainer(
-              controller: emailController,
-              focusNode: _emailFocusNode,
-              hintText: 'Enter your Email',
-              icon: Icons.email,
-              keyboardType: TextInputType.emailAddress,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your email';
-                } else if (!isValidEmail(value)) {
-                  return 'Please enter a valid email address';
-                }
-                return null;
-              },
+            Text(
+              "Welcome Back",
+              style: TextStyle(
+                color: isDarkMode ? Colors.white : Colors.indigo,
+                fontSize: 26,
+                fontFamily: "Noto",
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            const SizedBox(height: 15),
-            _buildTextFieldContainer(
-              controller: passwordController,
-              focusNode: _passwordFocusNode,
-              hintText: 'Password',
-              icon: Icons.lock,
-              obscureText: !isPasswordVisible,
-              isPassword: true,
+            const SizedBox(height: 5),
+            Text(
+              "sign in to access your account",
+              style: TextStyle(
+                color: _currentTheme.textTheme.bodyMedium!.color,
+                fontSize: 16,
+              ),
             ),
-            const SizedBox(height: 10),
-            _buildForgotPasswordLink(),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildGlassLoginContainer() {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 350),
+      padding: const EdgeInsets.fromLTRB(30, 40, 30, 30), // More top padding
+      decoration: BoxDecoration(
+        color: isDarkMode
+            ? Colors.white.withOpacity(0.08)
+            : Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(
+          color: isDarkMode
+              ? Colors.white.withOpacity(0.15)
+              : Colors.white.withOpacity(0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode
+                ? Colors.black.withOpacity(0.3)
+                : Colors.black.withOpacity(0.1),
+            blurRadius: 30,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(25), // CHANGE: Reduced from 30 to 25
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: isDarkMode
+                    ? [
+                  Colors.white.withOpacity(0.01),
+                  Colors.white.withOpacity(0.02),
+                ]
+                    : [
+                  Colors.white.withOpacity(0.1),
+                  Colors.white.withOpacity(0.05),
+                ],
+              ),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 10), // ADD: Extra spacing at top
+                _buildLoginFields(),
+                const SizedBox(height: 16),
+                _buildLoginButton(),
+                const SizedBox(height: 16),
+                _buildSignUpSection(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
+
+  Widget _buildLoginFields() {
+    return Form(
+      key: _formkey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildTextFieldContainer(
+            controller: emailController,
+            focusNode: _emailFocusNode,
+            hintText: 'Enter your Email',
+            icon: Icons.email,
+            keyboardType: TextInputType.emailAddress,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter your email';
+              } else if (!isValidEmail(value)) {
+                return 'Please enter a valid email address';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 12),
+          _buildTextFieldContainer(
+            controller: passwordController,
+            focusNode: _passwordFocusNode,
+            hintText: 'Password',
+            icon: Icons.lock,
+            obscureText: !isPasswordVisible,
+            isPassword: true,
+          ),
+          const SizedBox(height: 8),
+          _buildForgotPasswordLink(),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildTextFieldContainer({
     required TextEditingController controller,
@@ -381,28 +554,16 @@ class _LandingPageState extends State<LandingPage>
     TextInputType keyboardType = TextInputType.text,
     String? Function(String?)? validator,
   }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: 290,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+    return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: focusNode.hasFocus
-                ? Colors.orange.withOpacity(0.3)
-                : Colors.black.withOpacity(0.1),
-            blurRadius: focusNode.hasFocus ? 10 : 5,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
           ),
         ],
-        border: Border.all(
-          color: focusNode.hasFocus
-              ? Colors.orange.withOpacity(0.5)
-              : Colors.transparent,
-          width: 2,
-        ),
       ),
       child: TextFormField(
         controller: controller,
@@ -410,27 +571,24 @@ class _LandingPageState extends State<LandingPage>
         obscureText: obscureText,
         keyboardType: keyboardType,
         validator: validator,
-        style: const TextStyle(
-          fontFamily: "Noto",
+        style: TextStyle(
+          color: _currentTheme.textTheme.bodyLarge!.color,
           fontSize: 16,
         ),
         decoration: InputDecoration(
-          border: InputBorder.none,
           hintText: hintText,
-          hintStyle: const TextStyle(
-            fontWeight: FontWeight.w300,
-            fontFamily: "Noto",
-            color: Colors.grey,
+          hintStyle: TextStyle(
+            color: _currentTheme.textTheme.bodyMedium!.color,
           ),
           prefixIcon: Icon(
             icon,
-            color: focusNode.hasFocus ? Colors.orange : Colors.grey,
+            color: focusNode.hasFocus ? Colors.orange : Colors.grey.shade600,
           ),
           suffixIcon: isPassword
               ? IconButton(
             icon: Icon(
               isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-              color: Colors.grey,
+              color: Colors.grey.shade600,
             ),
             onPressed: () {
               setState(() {
@@ -439,10 +597,39 @@ class _LandingPageState extends State<LandingPage>
             },
           )
               : null,
+          filled: true,
+          fillColor: isDarkMode
+              ? Colors.grey[800]!.withOpacity(0.5)
+              : Colors.grey[50],
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: const BorderSide(
+              color: Colors.orange,
+              width: 2,
+            ),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: const BorderSide(
+              color: Colors.red,
+              width: 2,
+            ),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
         ),
       ),
     );
   }
+
+
+
 
   Widget _buildForgotPasswordLink() {
     return Row(
@@ -532,67 +719,61 @@ class _LandingPageState extends State<LandingPage>
   }
 
   Widget _buildSignUpSection() {
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardOpen = keyboardHeight > 0;
-
-    return AnimatedOpacity(
-      opacity: isKeyboardOpen ? 0.0 : 1.0,
-      duration: const Duration(milliseconds: 300),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        height: isKeyboardOpen ? 0 : null,
-        child: isKeyboardOpen ? const SizedBox.shrink() : Column(
-          children: [
-            const Text(
-              "Or",
-              style: TextStyle(color: Colors.black54, fontSize: 16),
-            ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                Navigator.push(
-                  context,
-                  PageRouteBuilder(
-                    pageBuilder: (context, animation, secondaryAnimation) => const SignUpPage(),
-                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(1.0, 0.0),
-                          end: Offset.zero,
-                        ).animate(animation),
-                        child: child,
-                      );
-                    },
-                  ),
-                );
-              },
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Text(
-                    'New Member? ',
-                    style: TextStyle(
-                      color: Colors.black54,
-                      fontSize: 16,
-                      fontFamily: 'Sathoshi',
-                    ),
-                  ),
-                  Text(
-                    'Register Now',
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontSize: 18,
-                      fontFamily: "Noto",
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return Column(
+      children: [
+        Text(
+          "Or",
+          style: TextStyle(
+              color: isDarkMode ? Colors.white70 : Colors.black54, // ADD: Dark mode support
+              fontSize: 16),
         ),
-      ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            Navigator.push(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) => const SignUpPage(),
+                transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(1.0, 0.0),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  );
+                },
+              ),
+            );
+          },
+          child:  Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                'New Member? ',
+                style: TextStyle(
+                  color: isDarkMode ? Colors.white70 : Colors.black54, // ADD: Dark mode support
+                  fontSize: 16,
+                  fontFamily: 'Sathoshi',
+                ),
+              ),
+              Text(
+                'Register Now',
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontSize: 18,
+                  fontFamily: "Noto",
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
+
+
+
 }

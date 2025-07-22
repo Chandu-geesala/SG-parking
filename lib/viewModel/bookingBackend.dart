@@ -35,6 +35,11 @@ class BookingBackend {
     return now.isAfter(open) && now.isBefore(close);
   }
 
+
+
+
+
+
   // Book a slot for tomorrow
   Future<Map<String, dynamic>> bookSlotForTomorrow({
     required String slotId,
@@ -114,6 +119,56 @@ class BookingBackend {
       };
     }
   }
+
+
+
+  Future<Map<String, dynamic>> bookSlotForToday({
+    required String slotId,
+    required String vehicleType,
+    required String userEmail,
+    required String userName,
+  }) async {
+    try {
+      final todayDateStr = _formatDateForDocId(DateTime.now());
+
+      final slotRef = _firestore
+          .collection('Bookings')
+          .doc(todayDateStr)
+          .collection('BookedToday')
+          .doc(slotId);
+
+      final slotDoc = await slotRef.get();
+
+      if (slotDoc.exists) {
+        return {
+          'success': false,
+          'message': 'This slot is already booked for today',
+        };
+      }
+
+      await slotRef.set({
+        'bookedBy': userEmail,
+        'bookedAt': FieldValue.serverTimestamp(),
+        'userName': userName,
+        'doneBy': 'Admin',
+        'bookingDate': todayDateStr,
+        'slotId': slotId,
+      });
+
+      return {
+        'success': true,
+        'message': 'Successfully booked slot $slotId for today!',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error booking slot: ${e.toString()}',
+      };
+    }
+  }
+
+
+
 
   // Add this to your BookingBackend class
 
@@ -201,6 +256,65 @@ class BookingBackend {
       // Don't fail the cancellation if notification fails
     }
   }
+
+
+
+  // Cancel today's booking - no API notification needed
+  Future<Map<String, dynamic>> cancelBookingForToday({
+    required String slotId,
+    required String userEmail,
+  }) async {
+    try {
+      if (!isBookingWindowOpen()) {
+        return {
+          'success': false,
+          'message': 'Booking window is closed. Please cancel between 8:00 AM - 8:00 PM',
+        };
+      }
+
+      final todayDateStr = _formatDateForDocId(todayDate);
+
+      // Reference to the specific slot document for today
+      final slotRef = _firestore
+          .collection('Bookings')
+          .doc(todayDateStr)
+          .collection('BookedToday')
+          .doc(slotId);
+
+      // Check if slot is booked by current user
+      final slotDoc = await slotRef.get();
+      if (!slotDoc.exists) {
+        return {
+          'success': false,
+          'message': 'No booking found for this slot today',
+        };
+      }
+
+      final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+      if (bookedBy != userEmail) {
+        return {
+          'success': false,
+          'message': 'You can only cancel your own booking',
+        };
+      }
+
+      // Delete the booking
+      await slotRef.delete();
+
+      return {
+        'success': true,
+        'message': 'Successfully cancelled today\'s booking!',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error cancelling booking: ${e.toString()}',
+      };
+    }
+  }
+
+
 
 
   // Get all available slots for today
@@ -466,4 +580,447 @@ class BookingBackend {
       return null;
     }
   }
+
+  // Add these methods to your BookingBackend class
+
+// Helper method to generate display name from email
+  String getDisplayNameFromEmail(String email) {
+    final usernamePart = email.split('@').first;
+    final words = usernamePart.split('.').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).toList();
+    return words.join(' ');
+  }
+
+
+
+// Modified request slot allocation methods with vehicle type
+
+// Helper method to get vehicle type from slot details
+  Future<String?> _getSlotVehicleType(String slotId) async {
+    try {
+      // Query the slots collection to find the slot by slotId
+      DocumentSnapshot slotDoc = await _firestore
+          .collection('Slots')
+          .doc(slotId)
+          .get();
+
+      if (slotDoc.exists) {
+        Map<String, dynamic> slotData = slotDoc.data() as Map<String, dynamic>;
+        return slotData['vehicleType'] as String?;
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching slot vehicle type: $e');
+      return null;
+    }
+  }
+
+// 1. New Request - for users who don't have any slot
+  Future<Map<String, dynamic>> requestNewSlot() async {
+    try {
+      // Get current user
+      User? currentUser = _auth.currentUser;
+
+      if (currentUser == null) {
+        return {
+          'success': false,
+          'message': 'No user logged in',
+        };
+      }
+
+      // Get user email
+      String userEmail = currentUser.email ?? '';
+
+      // Create request data (no vehicle type for new requests since no slot exists yet)
+      Map<String, dynamic> requestData = {
+        'email': userEmail,
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'NewReq',
+        'status': 'pending',
+        // No vehicleType for new requests since they don't have a slot yet
+      };
+
+      // Add to Firestore 'requests' collection
+      await _firestore.collection('requests').add(requestData);
+
+      return {
+        'success': true,
+        'message': 'New slot request submitted successfully!',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error submitting new slot request: ${e.toString()}',
+      };
+    }
+  }
+
+// 2. Today Request - for users who want to request today's slot
+  Future<Map<String, dynamic>> requestTodaySlot(String currentSlotId) async {
+    try {
+      // Get current user
+      User? currentUser = _auth.currentUser;
+
+      if (currentUser == null) {
+        return {
+          'success': false,
+          'message': 'No user logged in',
+        };
+      }
+
+      // Get user email
+      String userEmail = currentUser.email ?? '';
+
+      // Get vehicle type from the current slot
+      String? vehicleType = await _getSlotVehicleType(currentSlotId);
+
+      // Create request data
+      Map<String, dynamic> requestData = {
+        'email': userEmail,
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'TodReq',
+        'status': 'pending',
+        'currentSlotId': currentSlotId,
+        'vehicleType': vehicleType ?? 'Unknown', // Add vehicle type from slot
+      };
+
+      // Add to Firestore 'requests' collection
+      await _firestore.collection('requests').add(requestData);
+
+      return {
+        'success': true,
+        'message': 'Today slot request submitted successfully!',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error submitting today slot request: ${e.toString()}',
+      };
+    }
+  }
+
+// 3. Alternative Request - for users who want alternative slot
+  Future<Map<String, dynamic>> requestAlternativeSlot(String slotId) async {
+    try {
+      // Get current user
+      User? currentUser = _auth.currentUser;
+
+      if (currentUser == null) {
+        return {
+          'success': false,
+          'message': 'No user logged in',
+        };
+      }
+
+      // Get user email
+      String userEmail = currentUser.email ?? '';
+
+      // Get vehicle type from the current slot
+      String? vehicleType = await _getSlotVehicleType(slotId);
+
+      // Create request data
+      Map<String, dynamic> requestData = {
+        'email': userEmail,
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'AltReq',
+        'status': 'pending',
+        'currentSlotId': slotId, // Added missing currentSlotId
+        'vehicleType': vehicleType ?? 'Unknown', // Add vehicle type from slot
+      };
+
+      // Add to Firestore 'requests' collection
+      await _firestore.collection('requests').add(requestData);
+
+      return {
+        'success': true,
+        'message': 'Alternative slot request submitted successfully!',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error submitting alternative slot request: ${e.toString()}',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteAllUserRequests() async {
+    try {
+      // Get current user
+      User? currentUser = _auth.currentUser;
+
+      if (currentUser == null) {
+        return {
+          'success': false,
+          'message': 'No user logged in',
+        };
+      }
+
+      // Get user email
+      String userEmail = currentUser.email ?? '';
+
+      // Query all requests for this user
+      QuerySnapshot requestsQuery = await _firestore
+          .collection('requests')
+          .get();
+
+      if (requestsQuery.docs.isEmpty) {
+        return {
+          'success': true,
+          'message': 'No requests found to delete',
+        };
+      }
+
+      // Create a batch to delete all requests
+      WriteBatch batch = _firestore.batch();
+
+      for (QueryDocumentSnapshot doc in requestsQuery.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // Execute the batch delete
+      await batch.commit();
+
+      return {
+        'success': true,
+        'message': 'All requests deleted successfully! (${requestsQuery.docs.length} requests removed)',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error deleting requests: ${e.toString()}',
+      };
+    }
+  }
+
+
+// Modified fetch methods to handle different request types
+
+// Fetch user's slot request by type
+  Future<Map<String, dynamic>?> fetchSlotRequestByType(String requestType) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        return null;
+      }
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .where('type', isEqualTo: requestType)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        var docs = query.docs;
+        docs.sort((a, b) {
+          final aTime = a.data()['timestamp'];
+          final bTime = b.data()['timestamp'];
+          if (aTime != null && bTime != null) {
+            return bTime.compareTo(aTime);
+          }
+          if (aTime != null) return -1;
+          if (bTime != null) return 1;
+          return 0;
+        });
+        return docs.first.data();
+      } else {
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching slot request by type: $e');
+      return null;
+    }
+  }
+
+
+
+
+// Fetch all user's slot requests
+  Future<List<Map<String, dynamic>>> fetchAllSlotRequests() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        return [];
+      }
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        var docs = query.docs;
+        docs.sort((a, b) {
+          final aTime = a.data()['timestamp'];
+          final bTime = b.data()['timestamp'];
+          if (aTime != null && bTime != null) {
+            return bTime.compareTo(aTime);
+          }
+          if (aTime != null) return -1;
+          if (bTime != null) return 1;
+          return 0;
+        });
+        return docs.map((doc) => doc.data()).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('Error fetching all slot requests: $e');
+      return [];
+    }
+  }
+
+
+
+// Modified original fetchSlotRequest to get latest request of any type
+  Future<Map<String, dynamic>?> fetchSlotRequest() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        return null;
+      }
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        var docs = query.docs;
+        docs.sort((a, b) {
+          final aTime = a.data()['timestamp'];
+          final bTime = b.data()['timestamp'];
+          if (aTime != null && bTime != null) {
+            return bTime.compareTo(aTime);
+          }
+          if (aTime != null) return -1;
+          if (bTime != null) return 1;
+          return 0;
+        });
+        return docs.first.data();
+      } else {
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching slot request: $e');
+      return null;
+    }
+  }
+
+
+
+
+// Check if user has a specific type of slot request
+  Future<bool> hasSlotRequestOfType(String requestType) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return false;
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .where('type', isEqualTo: requestType)
+          .get();
+
+      return query.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking slot request of type: $e');
+      return false;
+    }
+  }
+
+// Modified hasSlotRequest to check for any type of request
+  Future<bool> hasSlotRequest() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return false;
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .get();
+
+      return query.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking slot request: $e');
+      return false;
+    }
+  }
+
+// Get slot request status by type
+  Future<String?> getSlotRequestStatusByType(String requestType) async {
+    try {
+      final requestData = await fetchSlotRequestByType(requestType);
+      return requestData?['status'];
+    } catch (e) {
+      print('Error getting slot request status by type: $e');
+      return null;
+    }
+  }
+
+// Modified getSlotRequestStatus to get latest request status of any type
+  Future<String?> getSlotRequestStatus() async {
+    try {
+      final requestData = await fetchSlotRequest();
+      return requestData?['status'];
+    } catch (e) {
+      print('Error getting slot request status: $e');
+      return null;
+    }
+  }
+
+// Helper method to get request type display name
+  String getRequestTypeDisplayName(String requestType) {
+    switch (requestType) {
+      case 'NewReq':
+        return 'New Slot Request';
+      case 'TodReq':
+        return 'Today Slot Request';
+      case 'AltReq':
+        return 'Alternative Slot Request';
+      default:
+        return 'Unknown Request Type';
+    }
+  }
+
+// Helper method to get all pending requests count by type
+  Future<Map<String, int>> getPendingRequestsCountByType() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return {};
+
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email)
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      Map<String, int> counts = {
+        'NewReq': 0,
+        'TodReq': 0,
+        'AltReq': 0,
+      };
+
+      for (var doc in query.docs) {
+        final type = doc.data()['type'] as String?;
+        if (type != null && counts.containsKey(type)) {
+          counts[type] = counts[type]! + 1;
+        }
+      }
+
+      return counts;
+    } catch (e) {
+      print('Error getting pending requests count: $e');
+      return {};
+    }
+  }
+
+
+
+
 }
