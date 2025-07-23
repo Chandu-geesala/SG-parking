@@ -298,8 +298,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildNoSlotAssignedCard() {
     final isLargeScreen = _isLargeScreen(context);
 
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: _backend.fetchSlotRequest(),
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _backend.getUserRequestsSummary(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
@@ -314,7 +314,8 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        final slotRequest = snapshot.data;
+        final summary = snapshot.data ?? {};
+        final slotRequest = summary['latestRequest'] as Map<String, dynamic>?;
         Widget cardContent;
 
         if (slotRequest != null) {
@@ -467,7 +468,6 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
-
 
   Future<void> _handleSlotRequest() async {
     // Call the requestNewSlot method from your backend

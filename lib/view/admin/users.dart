@@ -18,8 +18,22 @@ class _AllUsersPageState extends State<AllUsersPage> {
   String _selectedFilter = 'all';
   DateTime _selectedMonth = DateTime.now();
 
+  // Caching variables
+  Map<String, bool> _slotAllocationCache = {};
+  Map<String, List<Map<String, dynamic>>> _userSlotsCache = {};
+  Map<String, List<Map<String, dynamic>>> _userBookingsCache = {};
+  Map<String, int> _totalBookingsCache = {};
+  DateTime? _lastCacheUpdate;
+  static const Duration _cacheExpiry = Duration(minutes: 5);
+
+  // Batch processing
+  List<QueryDocumentSnapshot>? _allUsers;
+  Map<String, Map<String, dynamic>>? _allSlots;
+  bool _isLoadingSlots = false;
+
   bool get isWeb => MediaQuery.of(context).size.width > 800;
   double get maxWidth => isWeb ? 1200 : double.infinity;
+
 
 
 
@@ -31,6 +45,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
         _searchQuery = _searchController.text.toLowerCase();
       });
     });
+    _preloadSlotsData();
   }
 
   @override
@@ -39,44 +54,41 @@ class _AllUsersPageState extends State<AllUsersPage> {
     super.dispose();
   }
 
-  // Check if user has any slot allocated by checking Slots collection
-  Future<bool> _isUserSlotAllocated(String userEmail) async {
+  // OPTIMIZATION 1: Preload all slots data once and cache it
+  Future<void> _preloadSlotsData() async {
+    if (_isLoadingSlots) return;
+
+    setState(() {
+      _isLoadingSlots = true;
+    });
+
     try {
-      final slotsQuery = await _firestore.collection('Slots').get();
+      // Single query to get all slots
+      final slotsQuery = await _firestore
+          .collection('Slots')
+          .get(const GetOptions(source: Source.cache)); // Try cache first
+
+      _allSlots = {};
+      _slotAllocationCache.clear();
+      _userSlotsCache.clear();
 
       for (var slotDoc in slotsQuery.docs) {
         final slotData = slotDoc.data();
-        final allotedTo = slotData['alloted_to'] as List<dynamic>?;
+        _allSlots![slotDoc.id] = slotData;
 
+        final allotedTo = slotData['alloted_to'] as List<dynamic>?;
         if (allotedTo != null) {
           for (var allocation in allotedTo) {
-            if (allocation['email'] == userEmail) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
-    } catch (e) {
-      print('Error checking slot allocation: $e');
-      return false;
-    }
-  }
+            final userEmail = allocation['email'];
+            if (userEmail != null) {
+              // Cache slot allocation status
+              _slotAllocationCache[userEmail] = true;
 
-  // Get user's allocated slots
-  Future<List<Map<String, dynamic>>> _getUserAllocatedSlots(String userEmail) async {
-    try {
-      final slotsQuery = await _firestore.collection('Slots').get();
-      List<Map<String, dynamic>> userSlots = [];
-
-      for (var slotDoc in slotsQuery.docs) {
-        final slotData = slotDoc.data();
-        final allotedTo = slotData['alloted_to'] as List<dynamic>?;
-
-        if (allotedTo != null) {
-          for (var allocation in allotedTo) {
-            if (allocation['email'] == userEmail) {
-              userSlots.add({
+              // Cache user slots
+              if (!_userSlotsCache.containsKey(userEmail)) {
+                _userSlotsCache[userEmail] = [];
+              }
+              _userSlotsCache[userEmail]!.add({
                 'slotId': slotDoc.id,
                 'vehicleType': slotData['vehicleType'],
                 'slotPriority': slotData['slotPriority'],
@@ -88,50 +100,156 @@ class _AllUsersPageState extends State<AllUsersPage> {
           }
         }
       }
-      return userSlots;
+
+      _lastCacheUpdate = DateTime.now();
     } catch (e) {
-      print('Error getting user slots: $e');
-      return [];
+      print('Error preloading slots: $e');
+      // Fallback to server if cache fails
+      try {
+        final slotsQuery = await _firestore.collection('Slots').get();
+        // Process the same way as above
+        _processSlotData(slotsQuery.docs);
+      } catch (serverError) {
+        print('Error loading from server: $serverError');
+      }
+    } finally {
+      setState(() {
+        _isLoadingSlots = false;
+      });
     }
   }
 
-  // Get user's bookings for a specific month
+
+
+
+
+  void _processSlotData(List<QueryDocumentSnapshot> slotDocs) {
+    _allSlots = {};
+    _slotAllocationCache.clear();
+    _userSlotsCache.clear();
+
+    for (var slotDoc in slotDocs) {
+      final slotData = slotDoc.data() as Map<String, dynamic>;
+      _allSlots![slotDoc.id] = slotData;
+
+      final allotedTo = slotData['alloted_to'] as List<dynamic>?;
+      if (allotedTo != null) {
+        for (var allocation in allotedTo) {
+          final userEmail = allocation['email'];
+          if (userEmail != null) {
+            _slotAllocationCache[userEmail] = true;
+
+            if (!_userSlotsCache.containsKey(userEmail)) {
+              _userSlotsCache[userEmail] = [];
+            }
+            _userSlotsCache[userEmail]!.add({
+              'slotId': slotDoc.id,
+              'vehicleType': slotData['vehicleType'],
+              'slotPriority': slotData['slotPriority'],
+              'vehicleCompatibility': slotData['VehicleCompatibility'],
+              'allotedDate': allocation['alloted_date'],
+              'allotedName': allocation['name'],
+            });
+          }
+        }
+      }
+    }
+    _lastCacheUpdate = DateTime.now();
+  }
+
+
+
+
+  List<QueryDocumentSnapshot> _filterUsersSync(List<QueryDocumentSnapshot> users) {
+    return users.where((doc) {
+      final userData = doc.data() as Map<String, dynamic>;
+      final userEmail = doc.id;
+
+      return _matchesSearch(userData) && _matchesFilter(userData, userEmail);
+    }).toList();
+  }
+
+
+
+  bool _isUserSlotAllocated(String userEmail) {
+    _refreshCacheIfNeeded();
+    return _slotAllocationCache[userEmail] ?? false;
+  }
+
+
+
+  List<Map<String, dynamic>> _getUserAllocatedSlots(String userEmail) {
+    _refreshCacheIfNeeded();
+    return _userSlotsCache[userEmail] ?? [];
+  }
+
+  void _refreshCacheIfNeeded() {
+    if (_lastCacheUpdate == null ||
+        DateTime.now().difference(_lastCacheUpdate!) > _cacheExpiry) {
+      _preloadSlotsData();
+    }
+  }
+
+
+
   Future<List<Map<String, dynamic>>> _getUserBookings(String userEmail, DateTime month) async {
+    final cacheKey = '${userEmail}_${month.year}_${month.month}';
+
+    if (_userBookingsCache.containsKey(cacheKey)) {
+      return _userBookingsCache[cacheKey]!;
+    }
+
     try {
       List<Map<String, dynamic>> userBookings = [];
-
-      // Get all days in the month
       final firstDay = DateTime(month.year, month.month, 1);
       final lastDay = DateTime(month.year, month.month + 1, 0);
+
+      // OPTIMIZATION 4: Use batch reads for better performance
+      final batch = _firestore.batch();
+      List<Future<QuerySnapshot>> bookingFutures = [];
 
       for (int day = firstDay.day; day <= lastDay.day; day++) {
         final dateKey = DateFormat('yyyy-MM-dd').format(DateTime(month.year, month.month, day));
 
-        try {
-          final bookingsDoc = await _firestore
-              .collection('Bookings')
-              .doc(dateKey)
-              .collection('BookedToday')
-              .where('bookedBy', isEqualTo: userEmail)
-              .get();
+        bookingFutures.add(
+            _firestore
+                .collection('Bookings')
+                .doc(dateKey)
+                .collection('BookedToday')
+                .where('bookedBy', isEqualTo: userEmail)
+                .get(const GetOptions(source: Source.cache))
+                .catchError((_) => _firestore
+                .collection('Bookings')
+                .doc(dateKey)
+                .collection('BookedToday')
+                .where('bookedBy', isEqualTo: userEmail)
+                .get())
+        );
+      }
 
-          for (var bookingDoc in bookingsDoc.docs) {
-            final bookingData = bookingDoc.data();
-            userBookings.add({
-              'slotId': bookingData['slotId'],
-              'bookedBy': bookingData['bookedBy'],
-              'userName': bookingData['userName'],
-              'vehicleType': bookingData['vehicleType'],
-              'bookingDate': bookingData['bookingDate'],
-              'dateKey': dateKey,
-            });
-          }
-        } catch (e) {
-          // Continue if date doesn't exist
-          continue;
+      // Execute all queries concurrently
+      final results = await Future.wait(bookingFutures);
+
+      for (int i = 0; i < results.length; i++) {
+        final snapshot = results[i];
+        final dateKey = DateFormat('yyyy-MM-dd').format(
+            DateTime(month.year, month.month, firstDay.day + i)
+        );
+
+        for (var bookingDoc in snapshot.docs) {
+          final bookingData = bookingDoc.data() as Map<String, dynamic>;
+          userBookings.add({
+            'slotId': bookingData['slotId'],
+            'bookedBy': bookingData['bookedBy'],
+            'userName': bookingData['userName'],
+            'vehicleType': bookingData['vehicleType'],
+            'bookingDate': bookingData['bookingDate'],
+            'dateKey': dateKey,
+          });
         }
       }
 
+      _userBookingsCache[cacheKey] = userBookings;
       return userBookings;
     } catch (e) {
       print('Error getting user bookings: $e');
@@ -139,32 +257,30 @@ class _AllUsersPageState extends State<AllUsersPage> {
     }
   }
 
+
+
+
+
+
   // Get total user bookings count
   Future<int> _getTotalUserBookings(String userEmail) async {
+    if (_totalBookingsCache.containsKey(userEmail)) {
+      return _totalBookingsCache[userEmail]!;
+    }
+
     try {
+      // Instead of checking every day, use aggregation or limit the range
+      final now = DateTime.now();
+      final startDate = DateTime(now.year, 1, 1); // Current year only
       int totalBookings = 0;
 
-      // This is a simplified approach - in production, you might want to optimize this
-      final now = DateTime.now();
-      final startDate = DateTime(now.year - 1, now.month, now.day); // Last year
-
-      for (var date = startDate; date.isBefore(now); date = date.add(const Duration(days: 1))) {
-        final dateKey = DateFormat('yyyy-MM-dd').format(date);
-
-        try {
-          final bookingsDoc = await _firestore
-              .collection('Bookings')
-              .doc(dateKey)
-              .collection('BookedToday')
-              .where('bookedBy', isEqualTo: userEmail)
-              .get();
-
-          totalBookings += bookingsDoc.docs.length;
-        } catch (e) {
-          continue;
-        }
+      // Process in chunks of 30 days to avoid too many concurrent requests
+      for (var month = 1; month <= now.month; month++) {
+        final monthBookings = await _getUserBookings(userEmail, DateTime(now.year, month, 1));
+        totalBookings += monthBookings.length;
       }
 
+      _totalBookingsCache[userEmail] = totalBookings;
       return totalBookings;
     } catch (e) {
       print('Error getting total bookings: $e');
@@ -172,17 +288,22 @@ class _AllUsersPageState extends State<AllUsersPage> {
     }
   }
 
-  // Filter users based on search and filter type
-  Future<bool> _matchesFilter(Map<String, dynamic> user, String userEmail) async {
+
+
+
+  bool _matchesFilter(Map<String, dynamic> user, String userEmail) {
     switch (_selectedFilter) {
       case 'alloted':
-        return await _isUserSlotAllocated(userEmail);
+        return _isUserSlotAllocated(userEmail);
       case 'unalloted':
-        return !(await _isUserSlotAllocated(userEmail));
+        return !_isUserSlotAllocated(userEmail);
       default:
         return true;
     }
   }
+
+
+
 
   bool _matchesSearch(Map<String, dynamic> user) {
     if (_searchQuery.isEmpty) return true;
@@ -197,6 +318,9 @@ class _AllUsersPageState extends State<AllUsersPage> {
         phone.contains(_searchQuery) ||
         vehicle.contains(_searchQuery);
   }
+
+
+
 
   List<String> _parseVehicles(String? vehicles) {
     if (vehicles == null || vehicles.isEmpty) return [];
@@ -219,7 +343,12 @@ class _AllUsersPageState extends State<AllUsersPage> {
   }
 
 
+
+
+
   Widget _buildUserCard(Map<String, dynamic> user, String userEmail) {
+    final isAlloted = _isUserSlotAllocated(userEmail);
+
     return Container(
       margin: EdgeInsets.only(bottom: isWeb ? 0 : 12),
       padding: EdgeInsets.all(isWeb ? 20 : 16),
@@ -237,84 +366,76 @@ class _AllUsersPageState extends State<AllUsersPage> {
       child: InkWell(
         onTap: () => _showUserBottomSheet(user, userEmail),
         borderRadius: BorderRadius.circular(12),
-        child: FutureBuilder<bool>(
-          future: _isUserSlotAllocated(userEmail),
-          builder: (context, snapshot) {
-            final isAlloted = snapshot.data ?? false;
-            final vehicles = _parseVehicles(user['vehicle']);
-
-            return IntrinsicHeight(
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: isWeb ? 28 : 24,
-                    backgroundColor: isAlloted
-                        ? Colors.green.withOpacity(0.15)
-                        : Theme.of(context).colorScheme.surfaceVariant,
-                    child: Icon(
-                      Icons.person,
-                      color: isAlloted
-                          ? Colors.green
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                      size: isWeb ? 28 : 24,
-                    ),
-                  ),
-                  SizedBox(width: isWeb ? 16 : 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          user['name'] ?? 'No Name',
-                          style: TextStyle(
-                            fontSize: isWeb ? 18 : 16,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          userEmail,
-                          style: TextStyle(
-                            fontSize: isWeb ? 16 : 14,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isWeb ? 12 : 8,
-                      vertical: isWeb ? 6 : 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isAlloted
-                          ? Colors.green.withOpacity(0.15)
-                          : Colors.red.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      isAlloted ? 'Alloted' : 'Unalloted',
-                      style: TextStyle(
-                        color: isAlloted
-                            ? Colors.green.shade700
-                            : Colors.red.shade700,
-                        fontSize: isWeb ? 12 : 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: isWeb ? 28 : 24,
+                backgroundColor: isAlloted
+                    ? Colors.green.withOpacity(0.15)
+                    : Theme.of(context).colorScheme.surfaceVariant,
+                child: Icon(
+                  Icons.person,
+                  color: isAlloted
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: isWeb ? 28 : 24,
+                ),
               ),
-            );
-          },
+              SizedBox(width: isWeb ? 16 : 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      user['name'] ?? 'No Name',
+                      style: TextStyle(
+                        fontSize: isWeb ? 18 : 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      userEmail,
+                      style: TextStyle(
+                        fontSize: isWeb ? 16 : 14,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWeb ? 12 : 8,
+                  vertical: isWeb ? 6 : 4,
+                ),
+                decoration: BoxDecoration(
+                  color: isAlloted
+                      ? Colors.green.withOpacity(0.15)
+                      : Colors.red.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  isAlloted ? 'Alloted' : 'Unalloted',
+                  style: TextStyle(
+                    color: isAlloted
+                        ? Colors.green.shade700
+                        : Colors.red.shade700,
+                    fontSize: isWeb ? 12 : 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -322,9 +443,11 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
 
 
+
+
+
   void _showUserBottomSheet(Map<String, dynamic> user, String userEmail) {
     if (isWeb) {
-      // Use dialog for web instead of bottom sheet
       showDialog(
         context: context,
         builder: (context) => Dialog(
@@ -376,7 +499,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
         ),
       );
     } else {
-      // Keep existing bottom sheet for mobile
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -393,7 +515,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
               ),
               child: Column(
                 children: [
-                  // Handle
                   Container(
                     margin: const EdgeInsets.only(top: 8),
                     height: 4,
@@ -403,7 +524,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  // Content
                   Expanded(
                     child: SingleChildScrollView(
                       controller: scrollController,
@@ -426,6 +546,9 @@ class _AllUsersPageState extends State<AllUsersPage> {
       );
     }
   }
+
+
+
 
   Widget _buildUserDetailsSection(Map<String, dynamic> user, String userEmail) {
     final vehicles = _parseVehicles(user['vehicle']);
@@ -469,7 +592,10 @@ class _AllUsersPageState extends State<AllUsersPage> {
     );
   }
 
+  // OPTIMIZATION 8: Use cached slot data instead of async loading
   Widget _buildSlotDetailsSection(Map<String, dynamic> user, String userEmail) {
+    final userSlots = _getUserAllocatedSlots(userEmail);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -482,88 +608,64 @@ class _AllUsersPageState extends State<AllUsersPage> {
           ),
         ),
         const SizedBox(height: 16),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: _getUserAllocatedSlots(userEmail),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                    width: 1,
-                  ),
-                ),
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-              );
-            }
-
-            final userSlots = snapshot.data ?? [];
-
-            return Container(
-              padding: const EdgeInsets.all(16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+              width: 1,
+            ),
+          ),
+          child: userSlots.isNotEmpty ? Column(
+            children: userSlots.map((slot) => Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                  width: 1,
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  _buildDetailRow('Slot ID', slot['slotId']),
+                  _buildDetailRow('Vehicle Type', slot['vehicleType']),
+                  _buildDetailRow('Priority', slot['slotPriority']),
+                  if (slot['vehicleCompatibility'] != null)
+                    _buildDetailRow('Compatibility', slot['vehicleCompatibility']),
+                  _buildDetailRow('Alloted Date', _formatDate(slot['allotedDate'])),
+                  _buildDetailRow('Status', 'Active'),
+                ],
+              ),
+            )).toList(),
+          ) : Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'No slots allocated to this user',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                  fontSize: 16,
                 ),
               ),
-              child: userSlots.isNotEmpty ? Column(
-                children: userSlots.map((slot) => Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      _buildDetailRow('Slot ID', slot['slotId']),
-                      _buildDetailRow('Vehicle Type', slot['vehicleType']),
-                      _buildDetailRow('Priority', slot['slotPriority']),
-                      if (slot['vehicleCompatibility'] != null)
-                        _buildDetailRow('Compatibility', slot['vehicleCompatibility']),
-                      _buildDetailRow('Alloted Date', _formatDate(slot['allotedDate'])),
-                      _buildDetailRow('Status', 'Active'),
-                    ],
-                  ),
-                )).toList(),
-              ) : Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'No slots allocated to this user',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
+            ),
+          ),
         ),
       ],
     );
   }
+
+
 
 
   Widget _buildBookingStatCard(String title, String value, IconData icon, Color color) {
@@ -1002,7 +1104,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
                             );
                           }
 
-                          final filteredUsers = filterSnapshot.data ?? [];
+                          final filteredUsers = _filterUsersSync(users);
 
                           if (filteredUsers.isEmpty) {
                             return Center(

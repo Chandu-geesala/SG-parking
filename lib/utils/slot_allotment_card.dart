@@ -23,104 +23,149 @@ class SlotAllotmentWidget extends StatefulWidget {
   State<SlotAllotmentWidget> createState() => _SlotAllotmentWidgetState();
 }
 
-class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
-  List<Map<String, dynamic>> _availableSlots = [];
-  bool _isLoadingSlots = false;
-  String? _selectedSlotId;
-  final BookingBackend _bookingBackend = BookingBackend();
 
-  // Booking state
+
+class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
+
+
+
+  List<Map<String, dynamic>> _availableSlots = [];
+  bool _isLoading = true; // Single loading state
+  String? _selectedSlotId;
   Map<String, dynamic>? _userTodayBooking;
-  bool _isLoadingBooking = false;
+
+  // Caching
+  DateTime? _lastSlotFetch;
+  static const Duration _slotCacheValidDuration = Duration(minutes: 1);
+
+  final BookingBackend _bookingBackend = BookingBackend();
 
   @override
   void initState() {
     super.initState();
-    _loadUserTodayBooking();
-    _loadAvailableSlots();
+    _initializeData();
   }
 
-  String getDisplayNameFromEmail(String email) {
-    final usernamePart = email.split('@').first;
-    final words = usernamePart.split('.').map((word) {
-      if (word.isEmpty) return '';
-      return word[0].toUpperCase() + word.substring(1).toLowerCase();
-    }).toList();
-    return words.join(' ');
-  }
+  // ✅ SINGLE INITIALIZATION - Batch all data fetching
+  Future<void> _initializeData() async {
+    if (!mounted) return;
 
-  Future<void> _loadUserTodayBooking() async {
     setState(() {
-      _isLoadingBooking = true;
+      _isLoading = true;
     });
 
     try {
+      // 🔥 BATCH BOTH BOOKING CHECK AND SLOT LOADING
+      final results = await Future.wait([
+        _loadUserTodayBookingOptimized(),
+        _loadAvailableSlotsOptimized(),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _userTodayBooking = results[0] as Map<String, dynamic>?;
+          _availableSlots = results[1] as List<Map<String, dynamic>>;
+          _lastSlotFetch = DateTime.now();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error initializing slot allotment data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // ✅ OPTIMIZED BOOKING CHECK - Single query instead of collection scan
+  Future<Map<String, dynamic>?> _loadUserTodayBookingOptimized() async {
+    try {
       final userEmail = widget.requestData['email'] ?? '';
+      if (userEmail.isEmpty) return null;
+
       final todayDateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-      // Check if user has any booking for today
-      final todayBookingQuery = await FirebaseFirestore.instance
+      // 🔥 QUERY ONLY TODAY'S BOOKINGS FOR THIS USER
+      final bookingQuery = await FirebaseFirestore.instance
           .collection('Bookings')
           .doc(todayDateStr)
           .collection('BookedToday')
           .where('bookedBy', isEqualTo: userEmail)
+          .limit(1) // Only need to know if ANY booking exists
           .get();
 
-      if (todayBookingQuery.docs.isNotEmpty) {
-        final doc = todayBookingQuery.docs.first;
-        setState(() {
-          _userTodayBooking = {
-            'slotId': doc.id,
-            'bookingData': doc.data(),
-            'exists': true,
-          };
-        });
-      } else {
-        setState(() {
-          _userTodayBooking = null;
-        });
+      if (bookingQuery.docs.isNotEmpty) {
+        final doc = bookingQuery.docs.first;
+        return {
+          'slotId': doc.id,
+          'bookingData': doc.data(),
+          'exists': true,
+        };
       }
+
+      return null;
     } catch (e) {
       print('Error loading user today booking: $e');
-      setState(() {
-        _userTodayBooking = null;
-      });
-    } finally {
-      setState(() {
-        _isLoadingBooking = false;
-      });
+      return null;
     }
   }
 
-  Future<void> _loadAvailableSlots() async {
-    setState(() {
-      _isLoadingSlots = true;
-    });
+  // ✅ CACHED SLOT LOADING - Avoid unnecessary fetches
+  Future<List<Map<String, dynamic>>> _loadAvailableSlotsOptimized() async {
+    // Check cache validity
+    if (_lastSlotFetch != null &&
+        DateTime.now().difference(_lastSlotFetch!) < _slotCacheValidDuration &&
+        _availableSlots.isNotEmpty) {
+      return _availableSlots; // Return cached data
+    }
 
     try {
       final slots = await _bookingBackend.getAvailableSlotsForToday();
-      setState(() {
-        _availableSlots = slots;
-        _isLoadingSlots = false;
-      });
+      return slots;
     } catch (e) {
       print('Error loading available slots: $e');
-      setState(() {
-        _isLoadingSlots = false;
-      });
+      throw e;
+    }
+  }
 
+  // ✅ SMART REFRESH - Only refresh if needed
+  Future<void> _refreshSlots() async {
+    // Don't refresh if recently fetched
+    if (_lastSlotFetch != null &&
+        DateTime.now().difference(_lastSlotFetch!) < Duration(seconds: 30)) {
+      return;
+    }
+
+    try {
+      final slots = await _loadAvailableSlotsOptimized();
+      if (mounted) {
+        setState(() {
+          _availableSlots = slots;
+          _lastSlotFetch = DateTime.now();
+          // Clear selection if selected slot is no longer available
+          if (_selectedSlotId != null &&
+              !slots.any((slot) => slot['slotId'] == _selectedSlotId)) {
+            _selectedSlotId = null;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error refreshing slots: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load available slots'),
-            backgroundColor: Colors.red,
+            content: Text('Failed to refresh slots'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
     }
   }
 
-  Future<void> _allotSlot() async {
+  // ✅ OPTIMISTIC SLOT BOOKING - Immediate UI feedback
+  Future<void> _allotSlotOptimistic() async {
     if (_selectedSlotId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -134,22 +179,28 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
     final userEmail = widget.requestData['email'] ?? '';
     final userName = getDisplayNameFromEmail(userEmail);
     final vehicleType = widget.requestData['vehicleType'] ?? '';
-
-    // Store the selected slot ID before clearing it
     final selectedSlotId = _selectedSlotId!;
 
-    // Clear the selected slot immediately to prevent dropdown errors
+    // 🚀 OPTIMISTIC UPDATE - Immediate UI response
+    final optimisticBooking = {
+      'slotId': selectedSlotId,
+      'bookingData': {
+        'bookedBy': userEmail,
+        'userName': userName,
+        'vehicleType': vehicleType,
+        'bookedAt': Timestamp.now(),
+      },
+      'exists': true,
+    };
+
     setState(() {
+      _userTodayBooking = optimisticBooking;
       _selectedSlotId = null;
+      // Remove the slot from available list immediately
+      _availableSlots.removeWhere((slot) => slot['slotId'] == selectedSlotId);
     });
 
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(child: CircularProgressIndicator()),
-      );
-
       final bookingResult = await _bookingBackend.bookSlotForToday(
         slotId: selectedSlotId,
         vehicleType: vehicleType,
@@ -157,31 +208,22 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
         userName: userName,
       );
 
-      Navigator.of(context).pop(); // Close loading dialog
-
       if (bookingResult['success'] == true) {
-        // Refresh both slots and bookings
-        await Future.wait([
-          _loadAvailableSlots(),
-          _loadUserTodayBooking(),
-        ]);
-
-        // Call the callback to refresh parent data
+        // Success - call refresh callback
         widget.onSlotsRefresh();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Slot $selectedSlotId allotted successfully!'),
+              content: Text('Slot $selectedSlotId booked successfully!'),
               backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
           );
         }
       } else {
-        // If booking failed, restore the selection
-        setState(() {
-          _selectedSlotId = selectedSlotId;
-        });
+        // 🔄 REVERT OPTIMISTIC UPDATE on failure
+        await _revertOptimisticUpdate();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -193,18 +235,14 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
         }
       }
     } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
-
-      // If there's an error, restore the selection
-      setState(() {
-        _selectedSlotId = selectedSlotId;
-      });
+      // 🔄 REVERT OPTIMISTIC UPDATE on error
+      await _revertOptimisticUpdate();
 
       print('Error allotting slot: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to allot slot: ${e.toString()}'),
+            content: Text('Failed to book slot: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -212,181 +250,29 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
     }
   }
 
-  // Build the allotted status display
-// ✅ REPLACE THIS ENTIRE METHOD:
-  Widget _buildAllottedStatus(Map<String, dynamic> bookingInfo) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final slotId = bookingInfo['slotId'] as String;
-    final bookingData = bookingInfo['bookingData'] as Map<String, dynamic>;
-    final vehicleType = bookingData['vehicleType'] as String? ?? widget.vehicleType ?? 'Unknown';
+  // ✅ REVERT OPTIMISTIC UPDATES
+  Future<void> _revertOptimisticUpdate() async {
+    try {
+      // Re-fetch actual current state
+      final results = await Future.wait([
+        _loadUserTodayBookingOptimized(),
+        _loadAvailableSlotsOptimized(),
+      ]);
 
-    return Container(
-      padding: EdgeInsets.all(widget.isDesktop ? 12 : 16),
-      decoration: BoxDecoration(
-        // Theme-aware success colors
-        gradient: isDark
-            ? LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF064E3B), // Dark green
-            const Color(0xFF065F46), // Slightly lighter
-            const Color(0xFF064E3B).withOpacity(0.8),
-          ],
-          stops: const [0.0, 0.6, 1.0],
-        )
-            : LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFFF0FDF4), // Light green
-            const Color(0xFFDCFCE7), // Slightly different shade
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark
-              ? const Color(0xFF10B981).withOpacity(0.4) // Emerald border for dark
-              : const Color(0xFF84CC16), // Lime border for light
-          width: isDark ? 1.5 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isDark
-                ? const Color(0xFF10B981).withOpacity(0.2) // Glow effect for dark
-                : const Color(0xFF84CC16).withOpacity(0.1),
-            offset: const Offset(0, 4),
-            blurRadius: isDark ? 12 : 6,
-            spreadRadius: 0,
-          ),
-          if (isDark) ...[
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              offset: const Offset(0, 2),
-              blurRadius: 8,
-              spreadRadius: 0,
-            ),
-          ],
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF10B981).withOpacity(0.2)
-                      : const Color(0xFF16A34A).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.check_circle,
-                  color: isDark
-                      ? const Color(0xFF34D399) // Light emerald for dark mode
-                      : const Color(0xFF16A34A), // Dark green for light mode
-                  size: widget.isDesktop ? 18 : 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Slot Successfully Allotted',
-                      style: TextStyle(
-                        fontSize: widget.isDesktop ? 13 : 14,
-                        fontWeight: FontWeight.w600,
-                        color: isDark
-                            ? const Color(0xFF34D399) // Light emerald for dark mode
-                            : const Color(0xFF16A34A), // Dark green for light mode
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          vehicleType.toUpperCase() == 'CAR' ? Icons.directions_car : Icons.motorcycle,
-                          size: 14,
-                          color: isDark
-                              ? const Color(0xFF6EE7B7) // Lighter emerald
-                              : const Color(0xFF22C55E), // Medium green
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          slotId.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: widget.isDesktop ? 15 : 16,
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? const Color(0xFFF0FDF4) // Very light green
-                                : const Color(0xFF15803D), // Darker green
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Cancel booking button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isLoadingBooking ? null : () => _cancelBooking(slotId),
-              icon: _isLoadingBooking
-                  ? SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-                  : Icon(
-                Icons.cancel_rounded,
-                size: widget.isDesktop ? 16 : 18,
-              ),
-              label: Text(
-                _isLoadingBooking ? 'Canceling...' : 'Cancel Booking',
-                style: TextStyle(
-                  fontSize: widget.isDesktop ? 13 : 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[600],
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.red[300],
-                padding: EdgeInsets.symmetric(
-                  vertical: widget.isDesktop ? 8 : 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                elevation: 2,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+      if (mounted) {
+        setState(() {
+          _userTodayBooking = results[0] as Map<String, dynamic>?;
+          _availableSlots = results[1] as List<Map<String, dynamic>>;
+        });
+      }
+    } catch (e) {
+      print('Error reverting optimistic update: $e');
+    }
   }
 
-
-  // ✅ ADD THIS NEW METHOD:
-  Future<void> _cancelBooking(String slotId) async {
+  // ✅ OPTIMISTIC CANCEL BOOKING
+  Future<void> _cancelBookingOptimistic(String slotId) async {
     try {
-      // Show confirmation dialog
       bool? confirmCancel = await showDialog<bool>(
         context: context,
         builder: (BuildContext context) {
@@ -402,9 +288,7 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.red[600],
-                ),
+                style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
                 child: Text('Yes, Cancel'),
               ),
             ],
@@ -412,28 +296,22 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
         },
       );
 
-      // If user confirmed cancellation
       if (confirmCancel == true) {
+        // 🚀 OPTIMISTIC UPDATE - Clear booking immediately
         setState(() {
-          _isLoadingBooking = true;
+          _userTodayBooking = null;
         });
 
-        final userEmail = widget.requestData['email'] ?? '';
+        // Trigger slot refresh to show the newly available slot
+        _refreshSlots();
 
-        // Call the cancel booking method from backend
+        final userEmail = widget.requestData['email'] ?? '';
         final result = await _bookingBackend.cancelBookingForToday(
           slotId: slotId,
           userEmail: userEmail,
         );
 
         if (result['success']) {
-          // Refresh both slots and bookings
-          await Future.wait([
-            _loadAvailableSlots(),
-            _loadUserTodayBooking(),
-          ]);
-
-          // Call the callback to refresh parent data
           widget.onSlotsRefresh();
 
           if (mounted) {
@@ -441,10 +319,14 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
               SnackBar(
                 content: Text('Booking cancelled successfully!'),
                 backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
               ),
             );
           }
         } else {
+          // 🔄 REVERT on failure
+          await _revertOptimisticUpdate();
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -456,6 +338,9 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
         }
       }
     } catch (e) {
+      // 🔄 REVERT on error
+      await _revertOptimisticUpdate();
+
       print('Error canceling booking: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -465,205 +350,44 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingBooking = false;
-        });
-      }
     }
   }
 
-
-
-
-  List<DropdownMenuItem<String>> _buildSlotDropdownItems() {
-    if (_isLoadingSlots) {
-      return [
-        DropdownMenuItem<String>(
-          value: null,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                'Loading slots...',
-                style: TextStyle(fontSize: 13, color: Color(0xFF718096)),
-              ),
-            ],
-          ),
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Container(
+        padding: EdgeInsets.all(widget.isDesktop ? 12 : 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant,
+          borderRadius: BorderRadius.circular(12),
         ),
-      ];
-    }
-
-    // Filter slots based on vehicle type
-    final filteredSlots = _availableSlots.where((slot) {
-      final slotVehicleType = slot['vehicleType'] as String? ?? 'BIKE';
-      return widget.vehicleType == null ||
-          slotVehicleType.toUpperCase() == widget.vehicleType!.toUpperCase();
-    }).toList();
-
-    if (filteredSlots.isEmpty) {
-      return [
-        DropdownMenuItem<String>(
-          value: null,
-          child: Row(
-            children: [
-              const Icon(Icons.warning, size: 14, color: Color(0xFFE53E3E)),
-              const SizedBox(width: 6),
-              Text(
-                widget.vehicleType != null
-                    ? 'No ${widget.vehicleType!.toLowerCase()} slots available'
-                    : 'No slots available',
-                style: const TextStyle(fontSize: 13, color: Color(0xFFE53E3E)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(strokeWidth: 2),
+            SizedBox(height: 12),
+            Text(
+              'Loading slot options...',
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-            ],
-          ),
-        ),
-      ];
-    }
-
-    return filteredSlots.map((slot) {
-      final slotId = slot['slotId'] as String;
-      final vehicleType = slot['vehicleType'] as String? ?? 'BIKE';
-      final allotedTo = slot['alloted_to'] as List<dynamic>? ?? [];
-
-      String allotedText = '';
-      if (allotedTo.isNotEmpty) {
-        allotedText = allotedTo.join(', ');
-      }
-
-      // In the SlotAllotmentWidget, update this part:
-      return DropdownMenuItem<String>(
-        value: slotId,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                vehicleType == 'CAR' ? Icons.directions_car : Icons.motorcycle,
-                size: 14,
-                color: vehicleType == 'CAR' ? Color(0xFF4299E1) : Color(0xFF48BB78),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          slotId,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        // ✅ ADD VEHICLE COMPATIBILITY FOR CAR SLOTS:
-                        if (vehicleType == 'CAR' && slot['VehicleCompatibility'] != null) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.indigo.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              slot['VehicleCompatibility'],
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.indigo,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (allotedTo.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Alloted to: $allotedText',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        softWrap: true,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-
-
-    }).toList();
-  }
-
-  Widget _buildSelectedSlotDisplay(String? selectedSlotId) {
-    if (selectedSlotId == null) return const SizedBox.shrink();
-
-    // Find the selected slot from available slots
-    final selectedSlot = _availableSlots.firstWhere(
-          (slot) => slot['slotId'] == selectedSlotId,
-      orElse: () => {},
-    );
-
-    if (selectedSlot.isEmpty) {
-      return Text(
-        selectedSlotId,
-        style: TextStyle(
-          fontSize: 13,
-          color: Theme.of(context).colorScheme.onSurface,
-          fontWeight: FontWeight.w500,
-        ),
-        overflow: TextOverflow.ellipsis,
-        maxLines: 1,
-      );
-    }
-
-    final slotVehicleType = selectedSlot['vehicleType'] as String? ?? 'BIKE';
-
-    return Row(
-      children: [
-        Icon(
-          slotVehicleType == 'CAR' ? Icons.directions_car : Icons.motorcycle,
-          size: 14,
-          color: slotVehicleType == 'CAR'
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.secondary,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            selectedSlotId,
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w500,
             ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
+          ],
         ),
-      ],
-    );
+      );
+    }
+
+    // Check if user already has a booking
+    if (_userTodayBooking != null && _userTodayBooking!['exists'] == true) {
+      return _buildAllottedStatus(_userTodayBooking!);
+    } else {
+      return _buildSlotSelectionInterface();
+    }
   }
 
-  // Build the slot selection interface
+  // Update the refresh button to use smart refresh
   Widget _buildSlotSelectionInterface() {
     final isSlotSelected = _selectedSlotId != null;
 
@@ -690,9 +414,9 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
-              const Spacer(),
+              Spacer(),
               IconButton(
-                onPressed: _loadAvailableSlots,
+                onPressed: _refreshSlots, // Use smart refresh
                 icon: Icon(
                   Icons.refresh,
                   size: widget.isDesktop ? 16 : 18,
@@ -757,7 +481,7 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: isSlotSelected && !_isLoadingSlots ? _allotSlot : null,
+                  onPressed: isSlotSelected ? _allotSlotOptimistic : null,
                   icon: Icon(Icons.schedule, size: widget.isDesktop ? 16 : 20),
                   label: Text(
                     'Book Slot',
@@ -775,7 +499,6 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
             ],
           ),
         ],
@@ -783,39 +506,323 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoadingBooking) {
-      return Container(
-        padding: EdgeInsets.all(widget.isDesktop ? 12 : 16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceVariant,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(strokeWidth: 2),
-            const SizedBox(height: 8),
-            Text(
-              'Checking booking status...',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+  // ✅ IMPROVED ALLOTTED STATUS WITH OPTIMISTIC CANCEL
+  Widget _buildAllottedStatus(Map<String, dynamic> bookingInfo) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final slotId = bookingInfo['slotId'] as String;
+    final bookingData = bookingInfo['bookingData'] as Map<String, dynamic>;
+    final vehicleType = bookingData['vehicleType'] as String? ?? widget.vehicleType ?? 'Unknown';
+
+    return Container(
+      padding: EdgeInsets.all(widget.isDesktop ? 12 : 16),
+      decoration: BoxDecoration(
+        gradient: isDark
+            ? LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF064E3B),
+            const Color(0xFF065F46),
+            const Color(0xFF064E3B).withOpacity(0.8),
+          ],
+          stops: const [0.0, 0.6, 1.0],
+        )
+            : LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFF0FDF4),
+            const Color(0xFFDCFCE7),
           ],
         ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? const Color(0xFF10B981).withOpacity(0.4)
+              : const Color(0xFF84CC16),
+          width: isDark ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? const Color(0xFF10B981).withOpacity(0.2)
+                : const Color(0xFF84CC16).withOpacity(0.1),
+            offset: const Offset(0, 4),
+            blurRadius: isDark ? 12 : 6,
+            spreadRadius: 0,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF10B981).withOpacity(0.2)
+                      : const Color(0xFF16A34A).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.check_circle,
+                  color: isDark
+                      ? const Color(0xFF34D399)
+                      : const Color(0xFF16A34A),
+                  size: widget.isDesktop ? 18 : 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Slot Successfully Booked',
+                      style: TextStyle(
+                        fontSize: widget.isDesktop ? 13 : 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? const Color(0xFF34D399)
+                            : const Color(0xFF16A34A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          vehicleType.toUpperCase() == 'CAR'
+                              ? Icons.directions_car
+                              : Icons.motorcycle,
+                          size: 14,
+                          color: isDark
+                              ? const Color(0xFF6EE7B7)
+                              : const Color(0xFF22C55E),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          slotId.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: widget.isDesktop ? 15 : 16,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? const Color(0xFFF0FDF4)
+                                : const Color(0xFF15803D),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _cancelBookingOptimistic(slotId),
+              icon: Icon(
+                Icons.cancel_rounded,
+                size: widget.isDesktop ? 16 : 18,
+              ),
+              label: Text(
+                'Cancel Booking',
+                style: TextStyle(
+                  fontSize: widget.isDesktop ? 13 : 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[600],
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(
+                  vertical: widget.isDesktop ? 8 : 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Keep your existing dropdown methods but with better loading states
+  List<DropdownMenuItem<String>> _buildSlotDropdownItems() {
+    // Filter slots based on vehicle type
+    final filteredSlots = _availableSlots.where((slot) {
+      final slotVehicleType = slot['vehicleType'] as String? ?? 'BIKE';
+      return widget.vehicleType == null ||
+          slotVehicleType.toUpperCase() == widget.vehicleType!.toUpperCase();
+    }).toList();
+
+    if (filteredSlots.isEmpty) {
+      return [
+        DropdownMenuItem<String>(
+          value: null,
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline, size: 14, color: Color(0xFF2D3748)),
+              const SizedBox(width: 6),
+              Text(
+                widget.vehicleType != null
+                    ? 'No ${widget.vehicleType!.toLowerCase()} slots available'
+                    : 'No slots available',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF2D3748)),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+
+    return filteredSlots.map((slot) {
+      final slotId = slot['slotId'] as String;
+      final vehicleType = slot['vehicleType'] as String? ?? 'BIKE';
+      final allotedTo = slot['alloted_to'] as List<dynamic>? ?? [];
+
+      String allotedText = '';
+      if (allotedTo.isNotEmpty) {
+        allotedText = allotedTo.join(', ');
+      }
+
+      return DropdownMenuItem<String>(
+        value: slotId,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                vehicleType == 'CAR' ? Icons.directions_car : Icons.motorcycle,
+                size: 14,
+                color: vehicleType == 'CAR' ? Color(0xFF4299E1) : Color(0xFF48BB78),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          slotId,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (vehicleType == 'CAR' && slot['VehicleCompatibility'] != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              slot['VehicleCompatibility'],
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.indigo,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (allotedTo.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Alloted to: $allotedText',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _buildSelectedSlotDisplay(String? selectedSlotId) {
+    if (selectedSlotId == null) return const SizedBox.shrink();
+
+    final selectedSlot = _availableSlots.firstWhere(
+          (slot) => slot['slotId'] == selectedSlotId,
+      orElse: () => {},
+    );
+
+    if (selectedSlot.isEmpty) {
+      return Text(
+        selectedSlotId,
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.w500,
+        ),
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
       );
     }
 
-    // Check if the user has already booked a slot for today
-    if (_userTodayBooking != null && _userTodayBooking!['exists'] == true) {
-      // Show allotted status
-      return _buildAllottedStatus(_userTodayBooking!);
-    } else {
-      // Show slot selection interface
-      return _buildSlotSelectionInterface();
-    }
+    final slotVehicleType = selectedSlot['vehicleType'] as String? ?? 'BIKE';
+
+    return Row(
+      children: [
+        Icon(
+          slotVehicleType == 'CAR' ? Icons.directions_car : Icons.motorcycle,
+          size: 14,
+          color: slotVehicleType == 'CAR'
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.secondary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            selectedSlotId,
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurface,
+              fontWeight: FontWeight.w500,
+            ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Keep your existing methods
+  String getDisplayNameFromEmail(String email) {
+    final usernamePart = email.split('@').first;
+    final words = usernamePart.split('.').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).toList();
+    return words.join(' ');
   }
 }

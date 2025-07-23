@@ -38,9 +38,6 @@ class BookingBackend {
 
 
 
-
-
-  // Book a slot for tomorrow
   Future<Map<String, dynamic>> bookSlotForTomorrow({
     required String slotId,
     required String vehicleType,
@@ -56,55 +53,52 @@ class BookingBackend {
       }
 
       final tomorrowDateStr = _formatDateForDocId(tomorrowDate);
+      final result = await _firestore.runTransaction((transaction) async {
 
-      // Reference to the specific slot document for tomorrow
-      final slotRef = _firestore
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .doc(slotId);
+        // OPTIMIZATION: Single transaction with batch reads
+        final slotRef = _firestore
+            .collection('Bookings')
+            .doc(tomorrowDateStr)
+            .collection('BookedToday')
+            .doc(slotId);
 
-      // Check if slot is already booked for tomorrow
-      final slotDoc = await slotRef.get();
-      if (slotDoc.exists) {
-        final bookedBy = slotDoc.data()?['bookedBy'] as String?;
-        if (bookedBy == userEmail) {
-          return {
-            'success': false,
-            'message': 'You have already booked this slot for tomorrow',
-          };
-        } else {
-          return {
-            'success': false,
-            'message': 'This slot is already booked by another user for tomorrow',
-          };
+        final userBookingsRef = _firestore
+            .collection('Bookings')
+            .doc(tomorrowDateStr)
+            .collection('BookedToday')
+            .where('bookedBy', isEqualTo: userEmail);
+
+        // Read operations within transaction
+        final slotDoc = await transaction.get(slotRef);
+        final userBookings = await userBookingsRef.limit(1).get();
+
+        // Check if slot is already booked
+        if (slotDoc.exists) {
+          final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+          if (bookedBy == userEmail) {
+            throw Exception('You have already booked this slot for tomorrow');
+          } else {
+            throw Exception('This slot is already booked by another user for tomorrow');
+          }
         }
-      }
 
-      // Check if user has already booked any slot for tomorrow
-      final userBookingQuery = await _firestore
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .where('bookedBy', isEqualTo: userEmail)
-          .get();
+        // Check if user has already booked any slot
+        if (userBookings.docs.isNotEmpty) {
+          final bookedSlot = userBookings.docs.first.id;
+          throw Exception('You have already booked slot $bookedSlot for tomorrow');
+        }
 
-      if (userBookingQuery.docs.isNotEmpty) {
-        final bookedSlot = userBookingQuery.docs.first.id;
-        return {
-          'success': false,
-          'message': 'You have already booked slot $bookedSlot for tomorrow',
-        };
-      }
+        // Create the booking within transaction
+        transaction.set(slotRef, {
+          'bookedBy': userEmail,
+          'bookedAt': FieldValue.serverTimestamp(),
+          'userName': userName,
+          'vehicleType': vehicleType,
+          'bookingDate': tomorrowDateStr,
+          'slotId': slotId,
+        });
 
-      // Create the booking
-      await slotRef.set({
-        'bookedBy': userEmail,
-        'bookedAt': FieldValue.serverTimestamp(),
-        'userName': userName,
-        'vehicleType': vehicleType,
-        'bookingDate': tomorrowDateStr,
-        'slotId': slotId,
+        return 'success';
       });
 
       return {
@@ -115,7 +109,7 @@ class BookingBackend {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error booking slot: ${e.toString()}',
+        'message': e.toString().replaceAll('Exception: ', ''),
       };
     }
   }
@@ -131,28 +125,33 @@ class BookingBackend {
     try {
       final todayDateStr = _formatDateForDocId(DateTime.now());
 
-      final slotRef = _firestore
-          .collection('Bookings')
-          .doc(todayDateStr)
-          .collection('BookedToday')
-          .doc(slotId);
+      // OPTIMIZATION: Use transaction like tomorrow booking
+      final result = await _firestore.runTransaction((transaction) async {
+        final slotRef = _firestore
+            .collection('Bookings')
+            .doc(todayDateStr)
+            .collection('BookedToday')
+            .doc(slotId);
 
-      final slotDoc = await slotRef.get();
+        // Read within transaction
+        final slotDoc = await transaction.get(slotRef);
 
-      if (slotDoc.exists) {
-        return {
-          'success': false,
-          'message': 'This slot is already booked for today',
-        };
-      }
+        if (slotDoc.exists) {
+          throw Exception('This slot is already booked for today');
+        }
 
-      await slotRef.set({
-        'bookedBy': userEmail,
-        'bookedAt': FieldValue.serverTimestamp(),
-        'userName': userName,
-        'doneBy': 'Admin',
-        'bookingDate': todayDateStr,
-        'slotId': slotId,
+        // Write within transaction
+        transaction.set(slotRef, {
+          'bookedBy': userEmail,
+          'bookedAt': FieldValue.serverTimestamp(),
+          'userName': userName,
+          'doneBy': 'Admin',
+          'vehicleType': vehicleType, // Add missing vehicleType
+          'bookingDate': todayDateStr,
+          'slotId': slotId,
+        });
+
+        return 'success';
       });
 
       return {
@@ -162,17 +161,11 @@ class BookingBackend {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error booking slot: ${e.toString()}',
+        'message': e.toString().replaceAll('Exception: ', ''),
       };
     }
   }
 
-
-
-
-  // Add this to your BookingBackend class
-
-// Simplified cancel booking method - API handles all the notification logic
   Future<Map<String, dynamic>> cancelBookingForTomorrow({
     required String slotId,
     required String userEmail,
@@ -187,34 +180,31 @@ class BookingBackend {
 
       final tomorrowDateStr = _formatDateForDocId(tomorrowDate);
 
-      // Reference to the specific slot document for tomorrow
-      final slotRef = _firestore
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .doc(slotId);
+      // OPTIMIZATION: Use transaction for atomic cancellation
+      final result = await _firestore.runTransaction((transaction) async {
+        final slotRef = _firestore
+            .collection('Bookings')
+            .doc(tomorrowDateStr)
+            .collection('BookedToday')
+            .doc(slotId);
 
-      // Check if slot is booked by current user
-      final slotDoc = await slotRef.get();
-      if (!slotDoc.exists) {
-        return {
-          'success': false,
-          'message': 'No booking found for this slot tomorrow',
-        };
-      }
+        final slotDoc = await transaction.get(slotRef);
 
-      final bookedBy = slotDoc.data()?['bookedBy'] as String?;
-      if (bookedBy != userEmail) {
-        return {
-          'success': false,
-          'message': 'You can only cancel your own booking',
-        };
-      }
+        if (!slotDoc.exists) {
+          throw Exception('No booking found for this slot tomorrow');
+        }
 
-      // Delete the booking first
-      await slotRef.delete();
+        final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+        if (bookedBy != userEmail) {
+          throw Exception('You can only cancel your own booking');
+        }
 
-      // Now notify the API about the cancellation - fire and forget
+        // Delete within transaction
+        transaction.delete(slotRef);
+        return 'success';
+      });
+
+      // Fire and forget notification (outside transaction)
       _notifySlotAvailable(slotId, userEmail);
 
       return {
@@ -225,12 +215,17 @@ class BookingBackend {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error cancelling booking: ${e.toString()}',
+        'message': e.toString().replaceAll('Exception: ', ''),
       };
     }
   }
 
-// Private method to notify API about slot availability
+
+
+
+
+
+//method to notify API about slot availability
   void _notifySlotAvailable(String slotId, String cancelledBy) async {
     try {
       final response = await http.post(
@@ -259,7 +254,6 @@ class BookingBackend {
 
 
 
-  // Cancel today's booking - no API notification needed
   Future<Map<String, dynamic>> cancelBookingForToday({
     required String slotId,
     required String userEmail,
@@ -274,32 +268,28 @@ class BookingBackend {
 
       final todayDateStr = _formatDateForDocId(todayDate);
 
-      // Reference to the specific slot document for today
-      final slotRef = _firestore
-          .collection('Bookings')
-          .doc(todayDateStr)
-          .collection('BookedToday')
-          .doc(slotId);
+      // OPTIMIZATION: Use transaction
+      final result = await _firestore.runTransaction((transaction) async {
+        final slotRef = _firestore
+            .collection('Bookings')
+            .doc(todayDateStr)
+            .collection('BookedToday')
+            .doc(slotId);
 
-      // Check if slot is booked by current user
-      final slotDoc = await slotRef.get();
-      if (!slotDoc.exists) {
-        return {
-          'success': false,
-          'message': 'No booking found for this slot today',
-        };
-      }
+        final slotDoc = await transaction.get(slotRef);
 
-      final bookedBy = slotDoc.data()?['bookedBy'] as String?;
-      if (bookedBy != userEmail) {
-        return {
-          'success': false,
-          'message': 'You can only cancel your own booking',
-        };
-      }
+        if (!slotDoc.exists) {
+          throw Exception('No booking found for this slot today');
+        }
 
-      // Delete the booking
-      await slotRef.delete();
+        final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+        if (bookedBy != userEmail) {
+          throw Exception('You can only cancel your own booking');
+        }
+
+        transaction.delete(slotRef);
+        return 'success';
+      });
 
       return {
         'success': true,
@@ -309,65 +299,61 @@ class BookingBackend {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error cancelling booking: ${e.toString()}',
+        'message': e.toString().replaceAll('Exception: ', ''),
       };
     }
   }
 
 
 
-
-  // Get all available slots for today
   Future<List<Map<String, dynamic>>> getAvailableSlotsForToday() async {
     try {
       final todayDateStr = _formatDateForDocId(todayDate);
 
-      // Get all slots from the Slots collection
-      final slotsQuery = await _firestore
-          .collection('Slots')
-          .get();
+      // OPTIMIZATION: Use batch read with Future.wait instead of sequential reads
+      final futures = [
+        _firestore.collection('Slots').get(),
+        _firestore
+            .collection('Bookings')
+            .doc(todayDateStr)
+            .collection('BookedToday')
+            .get()
+      ];
 
-      // Get all booked slots for today
-      final bookedSlotsQuery = await _firestore
-          .collection('Bookings')
-          .doc(todayDateStr)
-          .collection('BookedToday')
-          .get();
+      final results = await Future.wait(futures);
+      final slotsQuery = results[0] as QuerySnapshot;
+      final bookedSlotsQuery = results[1] as QuerySnapshot;
 
-      // Create a set of booked slot IDs for quick lookup
+      // Rest of the logic remains the same
       final bookedSlotIds = bookedSlotsQuery.docs.map((doc) => doc.id).toSet();
 
-      // Filter available slots (slots that are not booked)
       List<Map<String, dynamic>> availableSlots = [];
-
       for (var slotDoc in slotsQuery.docs) {
         String slotId = slotDoc.id;
-
-        // If slot is not booked today, it's available
         if (!bookedSlotIds.contains(slotId)) {
           Map<String, dynamic> slotData = slotDoc.data() as Map<String, dynamic>;
-
           availableSlots.add({
             'slotId': slotId,
             'slotData': slotData,
             'vehicleType': slotData['vehicleType'] ?? 'BIKE',
             'slotPriority': slotData['slotPriority'] ?? 'permanent',
             'alloted_to': (slotData['alloted_to'] as List?)?.map((item) => item['name'] ?? 'Unknown').toList() ?? [],
-            'VehicleCompatibility': slotData['VehicleCompatibility'], // For CAR type slots
+            'VehicleCompatibility': slotData['VehicleCompatibility'],
           });
         }
       }
 
-      // Sort by slot ID for better organization
       availableSlots.sort((a, b) => a['slotId'].compareTo(b['slotId']));
-
       return availableSlots;
-
     } catch (e) {
       print('Error getting available slots for today: $e');
       return [];
     }
   }
+
+
+
+
 
 // Optional: Get available slots by vehicle type for today
   Future<List<Map<String, dynamic>>> getAvailableSlotsByVehicleType(String vehicleType) async {
@@ -388,79 +374,145 @@ class BookingBackend {
 
 
 
-
-  // Get user's booking for today
-  Future<Map<String, dynamic>?> getTodaysBooking(String userEmail) async {
+  Future<Map<String, Map<String, dynamic>?>> getUserBookings(String userEmail) async {
     try {
       final todayDateStr = _formatDateForDocId(todayDate);
+      final tomorrowDateStr = _formatDateForDocId(tomorrowDate);
 
-      final todayBookingQuery = await _firestore
+      // OPTIMIZATION: Parallel execution of both queries
+      final futures = [
+        _firestore
+            .collection('Bookings')
+            .doc(todayDateStr)
+            .collection('BookedToday')
+            .where('bookedBy', isEqualTo: userEmail)
+            .limit(1) // Add limit since user can only have one booking per day
+            .get(),
+        _firestore
+            .collection('Bookings')
+            .doc(tomorrowDateStr)
+            .collection('BookedToday')
+            .where('bookedBy', isEqualTo: userEmail)
+            .limit(1) // Add limit since user can only have one booking per day
+            .get()
+      ];
+
+      final results = await Future.wait(futures);
+      final todayQuery = results[0] as QuerySnapshot;
+      final tomorrowQuery = results[1] as QuerySnapshot;
+
+      return {
+        'today': todayQuery.docs.isNotEmpty ? {
+          'slotId': todayQuery.docs.first.id,
+          'bookingData': todayQuery.docs.first.data(),
+        } : null,
+        'tomorrow': tomorrowQuery.docs.isNotEmpty ? {
+          'slotId': tomorrowQuery.docs.first.id,
+          'bookingData': tomorrowQuery.docs.first.data(),
+        } : null,
+      };
+    } catch (e) {
+      print('Error getting user bookings: $e');
+      return {'today': null, 'tomorrow': null};
+    }
+  }
+
+
+
+
+
+  Future<Map<String, bool>> checkMultipleSlotsAvailability(List<String> slotIds, DateTime date) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
+      Map<String, bool> availability = {};
+
+      // OPTIMIZATION: Single query to get all bookings for the date
+      final allBookingsQuery = await _firestore
           .collection('Bookings')
-          .doc(todayDateStr)
+          .doc(dateStr)
           .collection('BookedToday')
-          .where('bookedBy', isEqualTo: userEmail)
           .get();
 
-      if (todayBookingQuery.docs.isNotEmpty) {
-        final doc = todayBookingQuery.docs.first;
+      final bookedSlotIds = allBookingsQuery.docs.map((doc) => doc.id).toSet();
+
+      // Check availability for all requested slots
+      for (String slotId in slotIds) {
+        availability[slotId] = !bookedSlotIds.contains(slotId);
+      }
+
+      return availability;
+    } catch (e) {
+      print('Error checking multiple slots availability: $e');
+      return {};
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserRequestsSummary() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return {};
+
+      // OPTIMIZATION: Single query with composite index
+      final query = await _firestore
+          .collection('requests')
+          .where('email', isEqualTo: user.email!)
+          .orderBy('timestamp', descending: true) // Order by timestamp
+          .get();
+
+      if (query.docs.isEmpty) {
         return {
-          'slotId': doc.id,
-          'bookingData': doc.data(),
+          'hasRequests': false,
+          'totalRequests': 0,
+          'pendingRequests': 0,
+          'latestRequest': null,
+          'requestsByType': <String, int>{},
+          'pendingByType': <String, int>{},
         };
       }
 
-      return null;
-    } catch (e) {
-      print('Error getting today\'s booking: $e');
-      return null;
-    }
-  }
+      // Process all data in single pass
+      Map<String, int> requestsByType = {'NewReq': 0, 'TodReq': 0, 'AltReq': 0};
+      Map<String, int> pendingByType = {'NewReq': 0, 'TodReq': 0, 'AltReq': 0};
+      int pendingCount = 0;
+      Map<String, dynamic>? latestRequest;
 
-  // Get user's booking for tomorrow
-  Future<Map<String, dynamic>?> getTomorrowsBooking(String userEmail) async {
-    try {
-      final tomorrowDateStr = _formatDateForDocId(tomorrowDate);
+      for (var doc in query.docs) {
+        final data = doc.data();
+        final type = data['type'] as String?;
+        final status = data['status'] as String?;
 
-      final tomorrowBookingQuery = await _firestore
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .where('bookedBy', isEqualTo: userEmail)
-          .get();
+        if (latestRequest == null) {
+          latestRequest = data; // First doc is latest due to orderBy
+        }
 
-      if (tomorrowBookingQuery.docs.isNotEmpty) {
-        final doc = tomorrowBookingQuery.docs.first;
-        return {
-          'slotId': doc.id,
-          'bookingData': doc.data(),
-        };
+        if (type != null && requestsByType.containsKey(type)) {
+          requestsByType[type] = requestsByType[type]! + 1;
+
+          if (status == 'pending') {
+            pendingCount++;
+            pendingByType[type] = pendingByType[type]! + 1;
+          }
+        }
       }
 
-      return null;
+      return {
+        'hasRequests': true,
+        'totalRequests': query.docs.length,
+        'pendingRequests': pendingCount,
+        'latestRequest': latestRequest,
+        'requestsByType': requestsByType,
+        'pendingByType': pendingByType,
+        'allRequests': query.docs.map((doc) => doc.data()).toList(),
+      };
     } catch (e) {
-      print('Error getting tomorrow\'s booking: $e');
-      return null;
+      print('Error getting user requests summary: $e');
+      return {};
     }
   }
 
-  // Check if a specific slot is available for tomorrow
-  Future<bool> isSlotAvailableForTomorrow(String slotId) async {
-    try {
-      final tomorrowDateStr = _formatDateForDocId(tomorrowDate);
 
-      final slotDoc = await _firestore
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .doc(slotId)
-          .get();
 
-      return !slotDoc.exists;
-    } catch (e) {
-      print('Error checking slot availability: $e');
-      return false;
-    }
-  }
+
 
   // Get all bookings for a specific date
   Future<List<Map<String, dynamic>>> getBookingsForDate(DateTime date) async {
@@ -483,41 +535,46 @@ class BookingBackend {
     }
   }
 
-  // Get booking statistics for a user
-  Future<Map<String, int>> getUserBookingStats(String userEmail) async {
+
+  Future<Map<String, int>> getUserBookingStats(String userEmail, {int days = 30}) async {
     try {
-      // Get last 30 days of bookings
-      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
-      int totalBookings = 0;
-      int currentMonth = DateTime.now().month;
-      int currentYear = DateTime.now().year;
+      final endDate = DateTime.now();
+      final startDate = endDate.subtract(Duration(days: days));
 
-      for (int i = 0; i < 30; i++) {
-        final date = DateTime.now().subtract(Duration(days: i));
-        final dateStr = _formatDateForDocId(date);
-
-        final userBookingQuery = await _firestore
-            .collection('Bookings')
-            .doc(dateStr)
-            .collection('BookedToday')
-            .where('bookedBy', isEqualTo: userEmail)
-            .get();
-
-        if (userBookingQuery.docs.isNotEmpty) {
-          totalBookings++;
-        }
+      // OPTIMIZATION: Use date range instead of individual day queries
+      List<String> dateStrings = [];
+      for (int i = 0; i < days; i++) {
+        final date = endDate.subtract(Duration(days: i));
+        dateStrings.add(_formatDateForDocId(date));
       }
 
+      // OPTIMIZATION: Parallel queries for all dates
+      final futures = dateStrings.map((dateStr) =>
+          _firestore
+              .collection('Bookings')
+              .doc(dateStr)
+              .collection('BookedToday')
+              .where('bookedBy', isEqualTo: userEmail)
+              .limit(1) // User can only have one booking per day
+              .get()
+      ).toList();
+
+      final results = await Future.wait(futures);
+      int totalBookings = results.where((query) => query.docs.isNotEmpty).length;
+
       return {
-        'totalBookingsLast30Days': totalBookings,
-        'currentMonth': currentMonth,
-        'currentYear': currentYear,
+        'totalBookingsLast${days}Days': totalBookings,
+        'currentMonth': endDate.month,
+        'currentYear': endDate.year,
+        'averageBookingsPerWeek': ((totalBookings / days) * 7).round(),
       };
     } catch (e) {
       print('Error getting user booking stats: $e');
-      return {'totalBookingsLast30Days': 0};
+      return {'totalBookingsLast${days}Days': 0};
     }
   }
+
+
 
   // Helper method to show snackbar
   void showSnackBar(BuildContext context, String message, {bool isError = false}) {
@@ -593,29 +650,45 @@ class BookingBackend {
     return words.join(' ');
   }
 
+  static Map<String, String> _vehicleTypeCache = {};
+  static DateTime? _cacheTimestamp;
+  static const int CACHE_DURATION_MINUTES = 10; // Short cache for vehicle types
 
 
-// Modified request slot allocation methods with vehicle type
 
-// Helper method to get vehicle type from slot details
-  Future<String?> _getSlotVehicleType(String slotId) async {
+  Future<Map<String, String?>> getMultipleSlotVehicleTypes(List<String> slotIds) async {
     try {
-      // Query the slots collection to find the slot by slotId
-      DocumentSnapshot slotDoc = await _firestore
-          .collection('Slots')
-          .doc(slotId)
-          .get();
+      // OPTIMIZATION: Refresh cache if expired (vehicle types rarely change)
+      final now = DateTime.now();
+      if (_cacheTimestamp == null ||
+          now.difference(_cacheTimestamp!).inMinutes > CACHE_DURATION_MINUTES) {
 
-      if (slotDoc.exists) {
-        Map<String, dynamic> slotData = slotDoc.data() as Map<String, dynamic>;
-        return slotData['vehicleType'] as String?;
+        final slotsQuery = await _firestore.collection('Slots').get();
+        _vehicleTypeCache.clear();
+
+        for (var doc in slotsQuery.docs) {
+          final data = doc.data();
+          _vehicleTypeCache[doc.id] = data['vehicleType'] as String? ?? 'BIKE';
+        }
+        _cacheTimestamp = now;
       }
-      return null;
+
+      // Return vehicle types for requested slots
+      Map<String, String?> result = {};
+      for (String slotId in slotIds) {
+        result[slotId] = _vehicleTypeCache[slotId];
+      }
+
+      return result;
     } catch (e) {
-      print('Error fetching slot vehicle type: $e');
-      return null;
+      print('Error fetching multiple slot vehicle types: $e');
+      return {};
     }
   }
+
+
+
+
 
 // 1. New Request - for users who don't have any slot
   Future<Map<String, dynamic>> requestNewSlot() async {
@@ -748,48 +821,61 @@ class BookingBackend {
     }
   }
 
+
+
+
+
+  Future<String?> _getSlotVehicleType(String slotId) async {
+    try {
+      // Use the batch method for single slot (still benefits from caching)
+      final vehicleTypes = await getMultipleSlotVehicleTypes([slotId]);
+      return vehicleTypes[slotId];
+    } catch (e) {
+      print('Error fetching slot vehicle type: $e');
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> deleteAllUserRequests() async {
     try {
-      // Get current user
-      User? currentUser = _auth.currentUser;
-
+      final currentUser = _auth.currentUser;
       if (currentUser == null) {
-        return {
-          'success': false,
-          'message': 'No user logged in',
-        };
+        return {'success': false, 'message': 'No user logged in'};
       }
 
-      // Get user email
-      String userEmail = currentUser.email ?? '';
+      final userEmail = currentUser.email ?? '';
 
-      // Query all requests for this user
-      QuerySnapshot requestsQuery = await _firestore
-          .collection('requests')
-          .get();
+      // OPTIMIZATION: Query with limit and use batch delete
+      const batchSize = 500; // Firestore batch limit
+      int totalDeleted = 0;
 
-      if (requestsQuery.docs.isEmpty) {
-        return {
-          'success': true,
-          'message': 'No requests found to delete',
-        };
+      while (true) {
+        final requestsQuery = await _firestore
+            .collection('requests')
+            .where('email', isEqualTo: userEmail)
+            .limit(batchSize)
+            .get();
+
+        if (requestsQuery.docs.isEmpty) break;
+
+        final batch = _firestore.batch();
+        for (var doc in requestsQuery.docs) {
+          batch.delete(doc.reference);
+        }
+
+        await batch.commit();
+        totalDeleted += requestsQuery.docs.length;
+
+        // If we got less than batch size, we're done
+        if (requestsQuery.docs.length < batchSize) break;
       }
-
-      // Create a batch to delete all requests
-      WriteBatch batch = _firestore.batch();
-
-      for (QueryDocumentSnapshot doc in requestsQuery.docs) {
-        batch.delete(doc.reference);
-      }
-
-      // Execute the batch delete
-      await batch.commit();
 
       return {
         'success': true,
-        'message': 'All requests deleted successfully! (${requestsQuery.docs.length} requests removed)',
+        'message': totalDeleted > 0
+            ? 'All requests deleted successfully! ($totalDeleted requests removed)'
+            : 'No requests found to delete',
       };
-
     } catch (e) {
       return {
         'success': false,
@@ -799,180 +885,6 @@ class BookingBackend {
   }
 
 
-// Modified fetch methods to handle different request types
-
-// Fetch user's slot request by type
-  Future<Map<String, dynamic>?> fetchSlotRequestByType(String requestType) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        return null;
-      }
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .where('type', isEqualTo: requestType)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        var docs = query.docs;
-        docs.sort((a, b) {
-          final aTime = a.data()['timestamp'];
-          final bTime = b.data()['timestamp'];
-          if (aTime != null && bTime != null) {
-            return bTime.compareTo(aTime);
-          }
-          if (aTime != null) return -1;
-          if (bTime != null) return 1;
-          return 0;
-        });
-        return docs.first.data();
-      } else {
-        return null;
-      }
-    } catch (e) {
-      print('Error fetching slot request by type: $e');
-      return null;
-    }
-  }
-
-
-
-
-// Fetch all user's slot requests
-  Future<List<Map<String, dynamic>>> fetchAllSlotRequests() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        return [];
-      }
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        var docs = query.docs;
-        docs.sort((a, b) {
-          final aTime = a.data()['timestamp'];
-          final bTime = b.data()['timestamp'];
-          if (aTime != null && bTime != null) {
-            return bTime.compareTo(aTime);
-          }
-          if (aTime != null) return -1;
-          if (bTime != null) return 1;
-          return 0;
-        });
-        return docs.map((doc) => doc.data()).toList();
-      } else {
-        return [];
-      }
-    } catch (e) {
-      print('Error fetching all slot requests: $e');
-      return [];
-    }
-  }
-
-
-
-// Modified original fetchSlotRequest to get latest request of any type
-  Future<Map<String, dynamic>?> fetchSlotRequest() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        return null;
-      }
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        var docs = query.docs;
-        docs.sort((a, b) {
-          final aTime = a.data()['timestamp'];
-          final bTime = b.data()['timestamp'];
-          if (aTime != null && bTime != null) {
-            return bTime.compareTo(aTime);
-          }
-          if (aTime != null) return -1;
-          if (bTime != null) return 1;
-          return 0;
-        });
-        return docs.first.data();
-      } else {
-        return null;
-      }
-    } catch (e) {
-      print('Error fetching slot request: $e');
-      return null;
-    }
-  }
-
-
-
-
-// Check if user has a specific type of slot request
-  Future<bool> hasSlotRequestOfType(String requestType) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return false;
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .where('type', isEqualTo: requestType)
-          .get();
-
-      return query.docs.isNotEmpty;
-    } catch (e) {
-      print('Error checking slot request of type: $e');
-      return false;
-    }
-  }
-
-// Modified hasSlotRequest to check for any type of request
-  Future<bool> hasSlotRequest() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return false;
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .get();
-
-      return query.docs.isNotEmpty;
-    } catch (e) {
-      print('Error checking slot request: $e');
-      return false;
-    }
-  }
-
-// Get slot request status by type
-  Future<String?> getSlotRequestStatusByType(String requestType) async {
-    try {
-      final requestData = await fetchSlotRequestByType(requestType);
-      return requestData?['status'];
-    } catch (e) {
-      print('Error getting slot request status by type: $e');
-      return null;
-    }
-  }
-
-// Modified getSlotRequestStatus to get latest request status of any type
-  Future<String?> getSlotRequestStatus() async {
-    try {
-      final requestData = await fetchSlotRequest();
-      return requestData?['status'];
-    } catch (e) {
-      print('Error getting slot request status: $e');
-      return null;
-    }
-  }
 
 // Helper method to get request type display name
   String getRequestTypeDisplayName(String requestType) {

@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../viewModel/bookingBackend.dart';
-
+import 'dart:async';
 class BookingDashboard extends StatefulWidget {
   const BookingDashboard({Key? key}) : super(key: key);
 
@@ -13,26 +13,160 @@ class BookingDashboard extends StatefulWidget {
 
 class _BookingDashboardState extends State<BookingDashboard>
     with SingleTickerProviderStateMixin {
+
+
+
   late TabController _tabController;
   DateTime _selectedDate = DateTime.now();
   String _selectedDateType = 'today';
   List<Map<String, dynamic>> _bookings = [];
+  List<Map<String, dynamic>> _availableSlots = [];
   bool _isLoading = true;
+  bool _isLoadingSlots = false;
+
+  // Cache management
+  final Map<String, List<Map<String, dynamic>>> _bookingsCache = {};
+  final Map<String, List<Map<String, dynamic>>> _slotsCache = {};
+  final Map<String, DateTime> _cacheTimestamps = {};
+  static const Duration _cacheExpiry = Duration(minutes: 5);
+
+  // Debouncing for date selection
+  Timer? _debounceTimer;
+
+
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadBookings();
+    _loadInitialData();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
+  // Optimized initial data loading
+  Future<void> _loadInitialData() async {
+    setState(() => _isLoading = true);
 
+    try {
+      // Load today's data by default
+      await _loadDataForDate('today');
+    } catch (e) {
+      _showError('Error loading initial data: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  String _getCacheKey(DateTime date, String type) {
+    return '${DateFormat('yyyy-MM-dd').format(date)}_$type';
+  }
+
+  // Check if cache is valid
+  bool _isCacheValid(String key) {
+    final timestamp = _cacheTimestamps[key];
+    if (timestamp == null) return false;
+    return DateTime.now().difference(timestamp) < _cacheExpiry;
+  }
+
+
+
+  // Optimized data loading with caching
+  Future<void> _loadDataForDate(String dateType) async {
+    DateTime targetDate;
+    switch (dateType) {
+      case 'today':
+        targetDate = DateTime.now();
+        break;
+      case 'tomorrow':
+        targetDate = DateTime.now().add(const Duration(days: 1));
+        break;
+      default:
+        targetDate = _selectedDate;
+    }
+
+    final bookingsCacheKey = _getCacheKey(targetDate, 'bookings');
+    final slotsCacheKey = _getCacheKey(targetDate, 'slots');
+
+    // Check cache first
+    if (_isCacheValid(bookingsCacheKey) && _bookingsCache.containsKey(bookingsCacheKey)) {
+      setState(() {
+        _bookings = _bookingsCache[bookingsCacheKey]!;
+        _selectedDateType = dateType;
+      });
+    } else {
+      // Fetch from Firestore
+      await _fetchBookingsFromFirestore(targetDate, bookingsCacheKey);
+    }
+
+    // Load available slots only for today to reduce reads
+    if (_isTodayDate(targetDate)) {
+      if (_isCacheValid(slotsCacheKey) && _slotsCache.containsKey(slotsCacheKey)) {
+        setState(() => _availableSlots = _slotsCache[slotsCacheKey]!);
+      } else {
+        await _fetchAvailableSlotsFromFirestore(slotsCacheKey);
+      }
+    } else {
+      setState(() => _availableSlots = []);
+    }
+  }
+
+
+
+
+  void _onDateTypeChanged(String dateType) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _loadDataForDate(dateType);
+    });
+  }
+
+
+
+
+  Future<void> _fetchBookingsFromFirestore(DateTime targetDate, String cacheKey) async {
+    try {
+      final bookings = await BookingBackend().getBookingsForDate(targetDate);
+
+      // Update cache
+      _bookingsCache[cacheKey] = bookings;
+      _cacheTimestamps[cacheKey] = DateTime.now();
+
+      setState(() => _bookings = bookings);
+    } catch (e) {
+      _showError('Error loading bookings: $e');
+    }
+  }
+
+  // Separate method for fetching available slots
+  Future<void> _fetchAvailableSlotsFromFirestore(String cacheKey) async {
+    setState(() => _isLoadingSlots = true);
+
+    try {
+      final availableSlots = await BookingBackend().getAvailableSlotsForToday();
+
+      // Update cache
+      _slotsCache[cacheKey] = availableSlots;
+      _cacheTimestamps[cacheKey] = DateTime.now();
+
+      setState(() {
+        _availableSlots = availableSlots;
+        _isLoadingSlots = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingSlots = false);
+      _showError('Error loading available slots: $e');
+    }
+  }
+
+
+
+  // Optimized date picker
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -56,9 +190,52 @@ class _BookingDashboardState extends State<BookingDashboard>
         _selectedDate = picked;
         _selectedDateType = 'custom';
       });
-      await _loadBookings();
+      _onDateTypeChanged('custom');
     }
   }
+
+  // Helper methods
+  bool _isTodayDate(DateTime date) {
+    final now = DateTime.now();
+    return date.day == now.day &&
+        date.month == now.month &&
+        date.year == now.year;
+  }
+
+
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
+  }
+
+
+
+  void _cleanupExpiredCache() {
+    final now = DateTime.now();
+    final expiredKeys = <String>[];
+
+    _cacheTimestamps.forEach((key, timestamp) {
+      if (now.difference(timestamp) > _cacheExpiry) {
+        expiredKeys.add(key);
+      }
+    });
+
+    for (final key in expiredKeys) {
+      _bookingsCache.remove(key);
+      _slotsCache.remove(key);
+      _cacheTimestamps.remove(key);
+    }
+  }
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -732,8 +909,7 @@ class _BookingDashboardState extends State<BookingDashboard>
   }
 
   // Add this to your _BookingDashboardState class variables:
-  List<Map<String, dynamic>> _availableSlots = [];
-  bool _isLoadingSlots = false;
+
 
 // Add this method to load available slots
   Future<void> _loadAvailableSlots() async {

@@ -28,18 +28,44 @@ class _MysplashScreenState extends State<MysplashScreen> {
   @override
   void initState() {
     super.initState();
+    // OPTIMIZATION 3: Initialize SignUpService for optimizations
+    _signUpService.initialize();
     initTimer();
   }
 
+  @override
+  void dispose() {
+    _connectivityTimer?.cancel();
+    super.dispose();
+  }
+
+
   void initTimer() async {
-    Timer(const Duration(seconds: 2), () async {
+    // OPTIMIZATION 4: Reduced splash delay for better UX
+    Timer(const Duration(milliseconds: 1500), () async {
       await _checkInternetAndNavigate();
     });
   }
 
+  bool _isOnline = true;
+  Timer? _connectivityTimer;
+
+  // OPTIMIZATION 2: Cache admin status to prevent repeated Firestore calls
+  static bool? _cachedAdminStatus;
+  static String? _cachedAdminEmail;
+  static DateTime? _adminCacheTime;
+  static const Duration _adminCacheExpiry = Duration(hours: 1); // Cache for 1 hour
+
+
+
+
   Future<void> _checkInternetAndNavigate() async {
-    // Simple and reliable internet check
+    // OPTIMIZATION 5: Enhanced internet check with caching
     bool hasInternet = await _checkInternetConnection();
+    _isOnline = hasInternet;
+
+    // Update SignUpService connectivity state
+    _signUpService.setConnectionState(hasInternet);
 
     if (!hasInternet) {
       print('🌐 No internet connection, navigating to offline page');
@@ -47,9 +73,13 @@ class _MysplashScreenState extends State<MysplashScreen> {
       return;
     }
 
-    // If internet is available, proceed with normal navigation
+    // If internet is available, proceed with optimized navigation
     await _navigateBasedOnUserState();
   }
+
+
+
+
 
   // SIMPLE AND RELIABLE INTERNET CHECK
   Future<bool> _checkInternetConnection() async {
@@ -117,7 +147,8 @@ class _MysplashScreenState extends State<MysplashScreen> {
       print('✅ Email verified: ${user?.emailVerified}');
 
       if (user != null) {
-        bool isAdmin = await isCurrentUserAdmin();
+        bool isAdmin = await _signUpService.getAdminStatus();
+
         if (isAdmin) {
           SharedPreferences prefs = await SharedPreferences.getInstance();
           await prefs.setString('priority', 'admin');
@@ -189,11 +220,13 @@ class _MysplashScreenState extends State<MysplashScreen> {
 
   void _navigateToPage(Widget page) {
     if (mounted) {
+      // Clear any pending timers
+      _connectivityTimer?.cancel();
+
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => page),
             (Route<dynamic> route) => false,
       );
-
     }
   }
 

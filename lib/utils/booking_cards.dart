@@ -19,6 +19,9 @@ class BookingCards extends StatefulWidget {
 class _BookingCardsState extends State<BookingCards> {
   late Future<Map<String, dynamic>?> _userSlotFuture;
   final BookingBackend _backend = BookingBackend();
+  bool _isLoadingTodayBooking = false;
+  bool _isLoadingTomorrowBooking = false;
+
 
   // Booking state variables
   Map<String, dynamic>? _todaysBooking;
@@ -29,6 +32,11 @@ class _BookingCardsState extends State<BookingCards> {
   bool _allowAutoAllotment = false;
   StreamSubscription<DocumentSnapshot>? _toggleSubscription;
   bool _isLoadingToggles = false;
+
+
+  Map<String, dynamic>? _cachedUserSlot;
+  int _cachedWeeklyCount = 0;
+  DateTime? _lastWeeklyCountFetch;
 
 
   int _weeklyBookingCount = 0;
@@ -49,48 +57,56 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 // 4. Add method to fetch weekly booking count
-  Future<void> _fetchWeeklyBookingCount(String slotId, String userEmail) async {
-    setState(() {
-      _isLoadingWeeklyCount = true;
-    });
 
+  Future<Map<String, dynamic>> _fetchAllDataInBatch(String slotId, String userEmail) async {
     try {
-      final now = DateTime.now();
-      final workingDays = _getWorkingDaysOfWeek(now);
-      int bookingCount = 0;
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final tomorrow = DateFormat('yyyy-MM-dd').format(
+          DateTime.now().add(const Duration(days: 1)));
 
-      for (DateTime day in workingDays) {
-        // Skip future dates (don't count bookings beyond today)
-        if (day.isAfter(now)) continue;
+      // SINGLE BATCH OPERATION instead of multiple reads
+      final batch = FirebaseFirestore.instance.batch();
 
-        final dayStr = DateFormat('yyyy-MM-dd').format(day);
-        final slotDoc = await FirebaseFirestore.instance
+      // Get all required documents in one batch
+      final List<Future<DocumentSnapshot>> futures = [
+        // Today's booking
+        FirebaseFirestore.instance
             .collection('Bookings')
-            .doc(dayStr)
+            .doc(today)
             .collection('BookedToday')
             .doc(slotId)
-            .get();
+            .get(),
+        // Tomorrow's booking
+        FirebaseFirestore.instance
+            .collection('Bookings')
+            .doc(tomorrow)
+            .collection('BookedToday')
+            .doc(slotId)
+            .get(),
+        // Toggle settings
+        FirebaseFirestore.instance
+            .collection('toggle')
+            .doc('settings')
+            .get(),
+      ];
 
-        if (slotDoc.exists) {
-          final data = slotDoc.data()!;
-          final bookedBy = data['bookedBy'] as String;
-          if (bookedBy == userEmail) {
-            bookingCount++;
-          }
-        }
-      }
+      // Execute all reads in parallel
+      final results = await Future.wait(futures);
 
-      setState(() {
-        _weeklyBookingCount = bookingCount;
-        _isLoadingWeeklyCount = false;
-      });
+      return {
+        'todayBooking': _processBookingSnapshot(results[0], slotId, userEmail),
+        'tomorrowBooking': _processBookingSnapshot(results[1], slotId, userEmail),
+        'toggleSettings': results[2].exists ? results[2].data() : {},
+      };
     } catch (e) {
-      print('Error fetching weekly booking count: $e');
-      setState(() {
-        _isLoadingWeeklyCount = false;
-      });
+      throw e;
     }
   }
+
+
+
+
+
 
 // Initialize toggle listener
   void _initializeToggleListener() {
@@ -267,7 +283,7 @@ class _BookingCardsState extends State<BookingCards> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_isLoadingBookings)
+          if (_isLoadingTodayBooking)
             Center(
               child: CircularProgressIndicator(
                 strokeWidth: 3,
@@ -876,7 +892,7 @@ class _BookingCardsState extends State<BookingCards> {
           const SizedBox(height: 16),
 
           // Booking Status Section
-          if (_isLoadingBookings)
+          if (_isLoadingTomorrowBooking)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1242,14 +1258,15 @@ class _BookingCardsState extends State<BookingCards> {
 
           // Show slot allotment widget if auto allotment is enabled
           if (_allowAutoAllotment) ...[
-            FutureBuilder<Map<String, dynamic>?>(
-              future: _backend.fetchSlotRequestByType('TodReq'),
+            FutureBuilder<Map<String, dynamic>>(
+              future: _backend.getUserRequestsSummary(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return CircularProgressIndicator();
                 }
 
-                final todayRequest = snapshot.data;
+                final summary = snapshot.data ?? {};
+                final todayRequest = _getRequestByType(summary, 'TodReq');
                 final status = todayRequest?['status'] ?? 'pending';
                 final userEmail = FirebaseAuth.instance.currentUser?.email ?? '';
 
@@ -1280,7 +1297,7 @@ class _BookingCardsState extends State<BookingCards> {
                       isDesktop: MediaQuery.of(context).size.width > 768,
 
                       onSlotsRefresh: () async {
-                        await _loadBookings();
+                        await _refreshTodayOnly();
                       },
                     );
                   },
@@ -1289,14 +1306,16 @@ class _BookingCardsState extends State<BookingCards> {
 
               },
             ),
+
+
           ],
 
           // Show request buttons if requests are allowed
           if (_allowRequests) ...[
             if (_allowAutoAllotment) const SizedBox(height: 16), // Add spacing if both are shown
 
-            FutureBuilder<Map<String, dynamic>?>(
-              future: _backend.fetchSlotRequestByType('TodReq'),
+            FutureBuilder<Map<String, dynamic>>(
+              future: _backend.getUserRequestsSummary(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return ElevatedButton.icon(
@@ -1315,7 +1334,8 @@ class _BookingCardsState extends State<BookingCards> {
                   );
                 }
 
-                final altRequest = snapshot.data;
+                final summary = snapshot.data ?? {};
+                final altRequest = _getRequestByType(summary, 'TodReq');
                 bool hasRecentRequest = false;
                 String? requestStatus;
 
@@ -1360,6 +1380,8 @@ class _BookingCardsState extends State<BookingCards> {
                 );
               },
             ),
+
+
           ],
         ],
       ),
@@ -1532,8 +1554,8 @@ class _BookingCardsState extends State<BookingCards> {
           ] else ...[
             // Show slot allotment widget if auto allotment is enabled
             if (_allowAutoAllotment) ...[
-              FutureBuilder<Map<String, dynamic>?>(
-                future: _backend.fetchSlotRequestByType('AltReq'),
+              FutureBuilder<Map<String, dynamic>>(
+                future: _backend.getUserRequestsSummary(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return Container(
@@ -1542,7 +1564,8 @@ class _BookingCardsState extends State<BookingCards> {
                     );
                   }
 
-                  final altRequest = snapshot.data;
+                  final summary = snapshot.data ?? {};
+                  final altRequest = _getRequestByType(summary, 'AltReq');
                   final status = altRequest?['status'] ?? 'pending';
                   final userEmail = FirebaseAuth.instance.currentUser?.email ?? '';
 
@@ -1577,20 +1600,21 @@ class _BookingCardsState extends State<BookingCards> {
                         isDesktop: MediaQuery.of(context).size.width > 768,
 
                         onSlotsRefresh: () async {
-                          await _loadBookings();
+                          await _refreshTodayOnly();
                         },
                       );
                     },
                   );
 
                 },
-              ),
+              )
             ],
 
             // Show request buttons if requests are allowed (and auto allotment is not enabled)
             if (_allowRequests && !_allowAutoAllotment) ...[
-              FutureBuilder<Map<String, dynamic>?>(
-                future: _backend.fetchSlotRequestByType('AltReq'),
+
+              FutureBuilder<Map<String, dynamic>>(
+                future: _backend.getUserRequestsSummary(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return Container(
@@ -1625,7 +1649,40 @@ class _BookingCardsState extends State<BookingCards> {
                     );
                   }
 
-                  final altRequest = snapshot.data;
+                  if (snapshot.hasError) {
+                    return Container(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _requestAdminForAltSlot(slotId);
+                        },
+                        icon: Icon(
+                          Icons.admin_panel_settings_rounded,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'Request Admin for Alternate Slot',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          elevation: 2,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final summary = snapshot.data ?? {};
+                  final altRequest = _getRequestByType(summary, 'AltReq');
+
                   bool hasRecentRequest = false;
                   String? requestStatus;
 
@@ -1680,7 +1737,7 @@ class _BookingCardsState extends State<BookingCards> {
                     ),
                   );
                 },
-              ),
+              )
             ],
           ],
         ],
@@ -1691,7 +1748,16 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-
+  Map<String, dynamic>? _getRequestByType(Map<String, dynamic> summary, String requestType) {
+    final allRequests = summary['allRequests'] as List<Map<String, dynamic>>? ?? [];
+    try {
+      return allRequests.firstWhere(
+            (request) => request['type'] == requestType,
+      );
+    } catch (e) {
+      return null; // Not found
+    }
+  }
 
 
   Widget _buildBookingInfo(Map<String, dynamic> booking, bool isToday) {
@@ -1754,12 +1820,12 @@ class _BookingCardsState extends State<BookingCards> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _isLoadingBookings
+              onPressed: (isToday ? _isLoadingTodayBooking : _isLoadingTomorrowBooking) // ✅ CHANGED: Use appropriate loading variable
                   ? null
                   : () => isToday
                   ? _cancelTodaysBooking(slotId)
                   : _cancelTomorrowsBooking(slotId),
-              icon: _isLoadingBookings
+              icon: (isToday ? _isLoadingTodayBooking : _isLoadingTomorrowBooking)
                   ? const SizedBox(
                 width: 16,
                 height: 16,
@@ -1769,7 +1835,7 @@ class _BookingCardsState extends State<BookingCards> {
                 ),
               )
                   : const Icon(Icons.cancel_rounded),
-              label: Text(_isLoadingBookings ? 'Canceling...' : 'Cancel Booking'),
+              label:  Text((isToday ? _isLoadingTodayBooking : _isLoadingTomorrowBooking) ? 'Canceling...' : 'Cancel Booking'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red[600],
                 foregroundColor: Colors.white,
@@ -2097,7 +2163,7 @@ class _BookingCardsState extends State<BookingCards> {
     if (userSlot != null) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await _fetchWeeklyBookingCount(userSlot['slotId'], user.email!);
+        await _fetchWeeklyBookingCountOptimized(userSlot['slotId'], user.email!);
       }
     }
 
@@ -2107,6 +2173,63 @@ class _BookingCardsState extends State<BookingCards> {
 
 
   Future<Map<String, dynamic>?> fetchUserSlot() async {
+    // Return cached if available and recent
+    if (_cachedUserSlot != null) {
+      return _cachedUserSlot;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('No user logged in');
+
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .get();
+
+      if (userDoc.exists && userDoc.data()?['assignedSlotId'] != null) {
+        final userSlotId = userDoc.data()!['assignedSlotId'] as String;
+        final slotDoc = await FirebaseFirestore.instance
+            .collection('Slots')
+            .doc(userSlotId)
+            .get();
+
+        if (slotDoc.exists) {
+          final slotData = slotDoc.data()!;
+          final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
+
+          Map<String, dynamic>? userInfo;
+          for (var userData in allotedTo) {
+            if (userData['email'] == user.email) {
+              userInfo = userData;
+              break;
+            }
+          }
+
+          if (userInfo != null) {
+            // CACHE the result
+            _cachedUserSlot = {
+              'slotId': userSlotId,
+              'slotData': slotData,
+              'userInfo': userInfo,
+            };
+            return _cachedUserSlot;
+          }
+        }
+      }
+    } catch (e) {
+      print('Error in optimized slot fetch: $e');
+    }
+
+    print('WARNING: Using expensive fallback - consider fixing Users collection');
+    return await fetchUserSlotPrev();
+  }
+
+
+
+
+
+  Future<Map<String, dynamic>?> fetchUserSlotPrev() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('No user logged in');
 
@@ -2183,7 +2306,9 @@ class _BookingCardsState extends State<BookingCards> {
     if (!mounted) return;
 
     setState(() {
-      _isLoadingBookings = true;
+      // ✅ For initial loading of both, you can use either variable or create a separate one
+      _isLoadingTodayBooking = true;
+      _isLoadingTomorrowBooking = true;
     });
 
     try {
@@ -2195,108 +2320,104 @@ class _BookingCardsState extends State<BookingCards> {
           userAssignedSlotId = userSlot['slotId'] as String;
         }
 
-        Map<String, dynamic>? todaysSlotStatus;
-        Map<String, dynamic>? tomorrowsBooking;
-
         if (userAssignedSlotId != null) {
-          todaysSlotStatus =
-          await _checkTodaysSlotBooking(userAssignedSlotId, user.email!);
-          tomorrowsBooking =
-          await _checkTomorrowsSlotBooking(userAssignedSlotId, user.email!);
-        }
+          final bookingResults = await _checkBothBookingsOptimized(userAssignedSlotId, user.email!);
 
-        if (mounted) {
-          setState(() {
-            _todaysBooking = todaysSlotStatus;
-            _tomorrowsBooking = tomorrowsBooking;
-            _isLoadingBookings = false;
-          });
+          if (mounted) {
+            setState(() {
+              _todaysBooking = bookingResults['today'];
+              _tomorrowsBooking = bookingResults['tomorrow'];
+              _isLoadingTodayBooking = false;
+              _isLoadingTomorrowBooking = false;
+            });
+          }
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isLoadingBookings = false;
+          _isLoadingTodayBooking = false;
+          _isLoadingTomorrowBooking = false;
         });
         print('Error loading bookings: $e');
       }
     }
   }
 
-  Future<Map<String, dynamic>?> _checkTodaysSlotBooking(String slotId,
-      String userEmail) async {
+
+
+
+  Future<Map<String, Map<String, dynamic>?>> _checkBothBookingsOptimized(
+      String slotId, String userEmail) async {
     try {
-      final todayDateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-      final slotDoc = await FirebaseFirestore.instance
-          .collection('Bookings')
-          .doc(todayDateStr)
-          .collection('BookedToday')
-          .doc(slotId)
-          .get();
-
-      if (slotDoc.exists) {
-        final data = slotDoc.data()!;
-        final bookedBy = data['bookedBy'] as String;
-
-        return {
-          'slotId': slotId,
-          'bookingData': data,
-          'isBookedByCurrentUser': bookedBy == userEmail,
-          'bookedBy': bookedBy,
-          'exists': true,
-        };
-      } else {
-        return {
-          'slotId': slotId,
-          'exists': false,
-          'isBookedByCurrentUser': false,
-        };
-      }
-    } catch (e) {
-      print('Error checking today\'s slot booking: $e');
-      return null;
-    }
-  }
-
-  Future<Map<String, dynamic>?> _checkTomorrowsSlotBooking(String slotId,
-      String userEmail) async {
-    try {
-      final tomorrowDateStr = DateFormat('yyyy-MM-dd').format(
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final tomorrow = DateFormat('yyyy-MM-dd').format(
           DateTime.now().add(const Duration(days: 1)));
 
-      final slotDoc = await FirebaseFirestore.instance
-          .collection('Bookings')
-          .doc(tomorrowDateStr)
-          .collection('BookedToday')
-          .doc(slotId)
-          .get();
+      // Parallel reads instead of sequential
+      final futures = await Future.wait([
+        FirebaseFirestore.instance
+            .collection('Bookings')
+            .doc(today)
+            .collection('BookedToday')
+            .doc(slotId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('Bookings')
+            .doc(tomorrow)
+            .collection('BookedToday')
+            .doc(slotId)
+            .get(),
+      ]);
 
-      if (slotDoc.exists) {
-        final data = slotDoc.data()!;
-        final bookedBy = data['bookedBy'] as String;
-
-        return {
-          'slotId': slotId,
-          'bookingData': data,
-          'isBookedByCurrentUser': bookedBy == userEmail,
-          'bookedBy': bookedBy,
-          'exists': true,
-        };
-      } else {
-        return {
-          'slotId': slotId,
-          'exists': false,
-          'isBookedByCurrentUser': false,
-        };
-      }
+      return {
+        'today': _processBookingSnapshot(futures[0], slotId, userEmail),
+        'tomorrow': _processBookingSnapshot(futures[1], slotId, userEmail),
+      };
     } catch (e) {
-      print('Error checking tomorrow\'s slot booking: $e');
-      return null;
+      print('Error checking bookings: $e');
+      return {'today': null, 'tomorrow': null};
     }
   }
 
+  Map<String, dynamic>? _processBookingSnapshot(
+      DocumentSnapshot snapshot, String slotId, String userEmail) {
+    if (snapshot.exists) {
+      final data = snapshot.data()! as Map<String, dynamic>;
+      return {
+        'slotId': slotId,
+        'bookingData': data,
+        'isBookedByCurrentUser': data['bookedBy'] == userEmail,
+        'bookedBy': data['bookedBy'],
+        'exists': true,
+      };
+    }
+    return {
+      'slotId': slotId,
+      'exists': false,
+      'isBookedByCurrentUser': false,
+    };
+  }
+
+
+  void _incrementWeeklyCount() {
+    setState(() {
+      _weeklyBookingCount++;
+    });
+  }
+
+  void _decrementWeeklyCount() {
+    setState(() {
+      _weeklyBookingCount = max(0, _weeklyBookingCount - 1);
+    });
+  }
+
+
   Future<void> refreshData() async {
+    // Clear cache to force fresh data
+    _cachedUserSlot = null;
+    _lastWeeklyCountFetch = null;
+
     setState(() {
       _userSlotFuture = fetchUserSlot();
     });
@@ -2306,12 +2427,78 @@ class _BookingCardsState extends State<BookingCards> {
     if (userSlot != null) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await _fetchWeeklyBookingCount(userSlot['slotId'], user.email!);
+        await _fetchWeeklyBookingCountOptimized(userSlot['slotId'], user.email!);
       }
     }
 
     await _loadBookings();
     await fetchSlotRequest();
+// Refresh toggle settings too
+  }
+
+
+  Future<void> _fetchWeeklyBookingCountOptimized(String slotId, String userEmail) async {
+    final now = DateTime.now();
+    final today = DateTime.now(); // Add this for clarity
+
+    // Check cache first - only fetch if older than 30 minutes OR new week
+    if (_lastWeeklyCountFetch != null &&
+        _isSameWeek(now, _lastWeeklyCountFetch!) &&
+        now.difference(_lastWeeklyCountFetch!).inMinutes < 30) {
+      return; // Use cached value
+    }
+
+    setState(() => _isLoadingWeeklyCount = true);
+
+    try {
+      final workingDays = _getWorkingDaysOfWeek(now);
+      final docRefs = <Future<DocumentSnapshot>>[];
+
+      for (DateTime day in workingDays) {
+
+        if (day.isAfter(today)) continue;
+
+        final dayStr = DateFormat('yyyy-MM-dd').format(day);
+        docRefs.add(
+            FirebaseFirestore.instance
+                .collection('Bookings')
+                .doc(dayStr)
+                .collection('BookedToday')
+                .doc(slotId)
+                .get()
+        );
+      }
+
+      final snapshots = await Future.wait(docRefs);
+
+      int bookingCount = 0;
+      for (var snapshot in snapshots) {
+        if (snapshot.exists) {
+          final data = snapshot.data()! as Map<String, dynamic>;
+          if (data['bookedBy'] == userEmail) {
+            bookingCount++;
+          }
+        }
+      }
+
+      setState(() {
+        _weeklyBookingCount = bookingCount;
+        _isLoadingWeeklyCount = false;
+        _lastWeeklyCountFetch = now; // Cache timestamp
+      });
+    } catch (e) {
+      print('Error fetching weekly booking count: $e');
+      setState(() => _isLoadingWeeklyCount = false);
+    }
+  }
+
+// ADD this helper method:
+  bool _isSameWeek(DateTime date1, DateTime date2) {
+    final monday1 = _getMondayOfWeek(date1);
+    final monday2 = _getMondayOfWeek(date2);
+    return monday1.year == monday2.year &&
+        monday1.month == monday2.month &&
+        monday1.day == monday2.day;
   }
 
   Future<void> _bookSlotForTomorrow(String slotId, String vehicleType) async {
@@ -2319,7 +2506,7 @@ class _BookingCardsState extends State<BookingCards> {
     if (user == null) return;
 
     setState(() {
-      _isLoadingBookings = true;
+      _isLoadingTomorrowBooking = true;
     });
 
     try {
@@ -2337,10 +2524,10 @@ class _BookingCardsState extends State<BookingCards> {
       );
 
       if (result['success']) {
-        await _loadBookings();
-        // Refresh weekly count after successful booking
-        await _fetchWeeklyBookingCount(slotId, user.email!);
+        await _refreshTomorrowOnly();
+
       }
+
     } catch (e) {
       _backend.showSnackBar(
         context,
@@ -2350,7 +2537,7 @@ class _BookingCardsState extends State<BookingCards> {
     } finally {
       if (mounted) {
         setState(() {
-          _isLoadingBookings = false;
+          _isLoadingTomorrowBooking = false;
         });
       }
     }
@@ -2361,7 +2548,7 @@ class _BookingCardsState extends State<BookingCards> {
     if (user == null) return;
 
     setState(() {
-      _isLoadingBookings = true;
+      _isLoadingTomorrowBooking = true;
     });
 
     try {
@@ -2377,10 +2564,11 @@ class _BookingCardsState extends State<BookingCards> {
       );
 
       if (result['success']) {
-        await _loadBookings();
-
+        await _refreshTomorrowOnly();
 
       }
+
+
     } catch (e) {
       _backend.showSnackBar(
         context,
@@ -2390,19 +2578,81 @@ class _BookingCardsState extends State<BookingCards> {
     } finally {
       if (mounted) {
         setState(() {
-          _isLoadingBookings = false;
+          _isLoadingTomorrowBooking = false;
         });
       }
     }
   }
 
 
+  Future<void> _refreshTodayOnly() async {
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userSlot = await _userSlotFuture;
+      if (userSlot != null) {
+        final slotId = userSlot['slotId'] as String;
+
+        // Only refresh today's booking
+        final todayBooking = await _checkSingleBooking(slotId, user.email!, true);
+
+        if (mounted) {
+          setState(() {
+            _todaysBooking = todayBooking;
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _refreshTomorrowOnly() async {
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userSlot = await _userSlotFuture;
+      if (userSlot != null) {
+        final slotId = userSlot['slotId'] as String;
+
+        // Only refresh tomorrow's booking
+        final tomorrowBooking = await _checkSingleBooking(slotId, user.email!, false);
+
+        if (mounted) {
+          setState(() {
+            _tomorrowsBooking = tomorrowBooking;
+          });
+        }
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _checkSingleBooking(String slotId, String userEmail, bool isToday) async {
+    try {
+      final dateStr = isToday
+          ? DateFormat('yyyy-MM-dd').format(DateTime.now())
+          : DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 1)));
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('BookedToday')
+          .doc(slotId)
+          .get();
+
+      return _processBookingSnapshot(snapshot, slotId, userEmail);
+    } catch (e) {
+      print('Error checking single booking: $e');
+      return null;
+    }
+  }
+
   Future<void> _cancelTodaysBooking(String slotId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     setState(() {
-      _isLoadingBookings = true;
+      _isLoadingTodayBooking = true;
     });
 
     try {
@@ -2413,8 +2663,8 @@ class _BookingCardsState extends State<BookingCards> {
 
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
-        await _loadBookings(); // Refresh the bookings
-        await _fetchWeeklyBookingCount(slotId, user.email!); // Use the slotId parameter
+        await _refreshTodayOnly();
+        _decrementWeeklyCount(); // ✅ ADD this line instead
       } else {
         _backend.showSnackBar(context, result['message'], isError: true);
       }
@@ -2422,7 +2672,7 @@ class _BookingCardsState extends State<BookingCards> {
       _backend.showSnackBar(context, 'Error cancelling booking: $e', isError: true);
     } finally {
       setState(() {
-        _isLoadingBookings = false;
+        _isLoadingTodayBooking = false;
       });
     }
   }

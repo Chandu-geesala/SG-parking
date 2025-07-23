@@ -7,33 +7,598 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'package:universal_html/html.dart' as html;
-
 
 class SignUpService {
   static const String _signupDataKey = 'signup_data';
   static const String _signupStageKey = 'signup_stage';
-  static const String _tempIdKey = 'temp_id';
+  static const String _adminStatusKey = 'admin_status';
+  static const String _adminCacheExpiryKey = 'admin_cache_expiry';
+  static const Duration _adminCacheExpiry = Duration(hours: 24);
 
   // Signup stages
   static const String stageInitial = 'initial';
   static const String stageEmailSent = 'email_sent';
   static const String stageCompleted = 'completed';
 
-  // In-memory storage for web
+  // In-memory caches
   static String? _webTempId;
   static Map<String, String> _webSignupData = {};
   static String _webSignupStage = stageInitial;
+  static bool? _cachedAdminStatus;
+  static DateTime? _adminStatusCacheTime;
+  static Map<String, dynamic>? _userDocCache;
+  static DateTime? _userDocCacheTime;
+
+  // Email verification optimization
+  DateTime? _lastVerificationCheck;
+  bool? _lastVerificationResult;
+  static const Duration _verificationCacheWindow = Duration(seconds: 10);
+
+  // FCM token management
+  String? _currentFCMToken;
+  DateTime? _fcmTokenTimestamp;
+  Timer? _fcmTokenUpdateTimer;
+
+  // Connection state
+  bool _isOnline = true;
 
   // Platform check
   bool get isWeb => kIsWeb;
   bool get isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
-  /// Generate random temp ID for web users
+  // FIXED: Improved admin status check with better error handling
+  Future<bool> getAdminStatus() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
 
+      // Check in-memory cache first
+      if (_cachedAdminStatus != null &&
+          _adminStatusCacheTime != null &&
+          DateTime.now().difference(_adminStatusCacheTime!) < _adminCacheExpiry) {
+        print('✅ Admin status from memory cache: $_cachedAdminStatus');
+        return _cachedAdminStatus!;
+      }
 
-  /// Save signup data (platform-specific)
+      if (isWeb) {
+        // For web, check Firestore but cache the result
+        final adminDoc = await FirebaseFirestore.instance
+            .collection('admins')
+            .doc(user.email!)
+            .get();
+
+        _cachedAdminStatus = adminDoc.exists;
+        _adminStatusCacheTime = DateTime.now();
+
+        print('✅ Admin status from Firestore: $_cachedAdminStatus (cached)');
+        return adminDoc.exists;
+      } else {
+        // For mobile, first check SharedPreferences cache
+        final prefs = await SharedPreferences.getInstance();
+        final cachedStatus = prefs.getString(_adminStatusKey);
+        final cacheExpiry = prefs.getInt(_adminCacheExpiryKey) ?? 0;
+
+        if (cachedStatus != null && DateTime.now().millisecondsSinceEpoch < cacheExpiry) {
+          _cachedAdminStatus = cachedStatus == 'admin';
+          print('✅ Admin status from SharedPreferences cache: $_cachedAdminStatus');
+          return _cachedAdminStatus!;
+        }
+
+        // If cache expired, check Firestore and update cache
+        final adminDoc = await FirebaseFirestore.instance
+            .collection('admins')
+            .doc(user.email!)
+            .get();
+
+        _cachedAdminStatus = adminDoc.exists;
+        _adminStatusCacheTime = DateTime.now();
+
+        // Update SharedPreferences cache
+        await prefs.setString(_adminStatusKey, adminDoc.exists ? 'admin' : 'user');
+        await prefs.setInt(_adminCacheExpiryKey,
+            DateTime.now().add(_adminCacheExpiry).millisecondsSinceEpoch);
+
+        print('✅ Admin status from Firestore: $_cachedAdminStatus (cached)');
+        return adminDoc.exists;
+      }
+    } catch (e) {
+      print('❌ Error getting admin status: $e');
+      // Don't cache errors, return false and let subsequent calls retry
+      return false;
+    }
+  }
+
+  // FIXED: Simplified user/admin check - removed batch operations that might cause issues
+  Future<Map<String, dynamic>> checkUserExistsAndGetInfo(String email) async {
+    try {
+      // Check user document first
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(email)
+          .get();
+
+      // Check admin document separately to avoid batch read issues
+      final adminDoc = await FirebaseFirestore.instance
+          .collection('admins')
+          .doc(email)
+          .get();
+
+      return {
+        'userExists': userDoc.exists,
+        'isAdmin': adminDoc.exists,
+        'userData': userDoc.exists ? userDoc.data() : null,
+      };
+    } catch (e) {
+      print('❌ Error checking user existence: $e');
+      return {
+        'userExists': false,
+        'isAdmin': false,
+        'userData': null,
+      };
+    }
+  }
+
+  // FIXED: Major improvements to sign-in logic
+  Future<Map<String, dynamic>> signInWithEmail(String email, String password) async {
+    try {
+      print('🔐 Starting sign-in process for: $email');
+
+      // FIXED: Try Firebase Auth first, then check user existence
+      // This allows newly created accounts to sign in even if there are Firestore delays
+      UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
+
+      User? user = userCredential.user;
+      if (user == null) {
+        throw Exception("Login failed. Please try again.");
+      }
+
+      print('✅ Firebase Auth successful for: $email');
+
+      // Reload user to get latest data
+      await user.reload();
+      user = FirebaseAuth.instance.currentUser;
+
+      // FIXED: Check email verification status
+      if (!(user?.emailVerified ?? false)) {
+        print('❌ Email not verified for: $email');
+        return {
+          'success': false,
+          'emailNotVerified': true,
+          'message': 'Please verify your email before logging in.',
+        };
+      }
+
+      print('✅ Email verified for: $email');
+
+      // FIXED: Check user/admin status after successful auth (non-blocking)
+      // Don't fail login if Firestore check fails
+      bool isAdmin = false;
+      try {
+        final userInfo = await checkUserExistsAndGetInfo(email);
+        isAdmin = userInfo['isAdmin'] ?? false;
+
+        // Cache admin status
+        _cachedAdminStatus = isAdmin;
+        _adminStatusCacheTime = DateTime.now();
+
+        // For mobile, cache admin status in SharedPreferences
+        if (!isWeb) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_adminStatusKey, isAdmin ? 'admin' : 'user');
+          await prefs.setInt(_adminCacheExpiryKey,
+              DateTime.now().add(_adminCacheExpiry).millisecondsSinceEpoch);
+        }
+
+        print('✅ User/Admin status checked: isAdmin=$isAdmin');
+      } catch (e) {
+        print('⚠️ Warning: Could not check admin status, continuing with login: $e');
+        // Don't fail the login just because we can't check admin status
+      }
+
+      // Update FCM token on successful login (mobile only) - ASYNC to not block login
+      if (isMobile) {
+        updateFCMToken(email).catchError((e) => print('❌ FCM token update failed: $e'));
+      }
+
+      print('✅ Login successful for: $email');
+
+      if (isAdmin) {
+        return {
+          'success': true,
+          'user': user,
+          'isAdmin': true,
+          'message': 'Admin login successful!',
+        };
+      }
+
+      return {
+        'success': true,
+        'user': user,
+        'message': 'Login successful!',
+      };
+    } on FirebaseAuthException catch (e) {
+      print('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+
+      String msg = 'Login failed. Please try again.';
+      if (e.code == 'user-not-found') {
+        msg = 'No account found with this email. Please sign up first.';
+      } else if (e.code == 'wrong-password') {
+        msg = 'Incorrect password. Please try again.';
+      } else if (e.code == 'invalid-email') {
+        msg = 'Invalid email address format.';
+      } else if (e.code == 'user-disabled') {
+        msg = 'This account has been disabled.';
+      } else if (e.code == 'too-many-requests') {
+        msg = 'Too many failed attempts. Please try again later.';
+      } else if (e.code == 'network-request-failed') {
+        msg = 'Network error. Please check your internet connection.';
+      }
+
+      return {
+        'success': false,
+        'message': msg,
+        'error_code': e.code,
+      };
+    } catch (e) {
+      print('❌ General sign-in error: $e');
+      return {
+        'success': false,
+        'message': 'Login failed: ${e.toString()}',
+      };
+    }
+  }
+
+  // FIXED: Improved Firestore user creation with better error handling
+  Future<void> saveUserToFirestore(Map<String, String> userData) async {
+    final firestore = FirebaseFirestore.instance;
+    final email = userData['email'] ?? '';
+
+    if (email.isEmpty) throw Exception('Email required for Firestore user doc');
+
+    String autoGeneratedName = extractNameFromEmail(email);
+
+    // Get FCM token (only for mobile)
+    String? fcmToken;
+    if (isMobile) {
+      try {
+        fcmToken = await FirebaseMessaging.instance.getToken();
+      } catch (e) {
+        print('⚠️ Warning: Could not get FCM token: $e');
+        // Continue without FCM token
+      }
+    }
+
+    try {
+      // FIXED: Use set with merge instead of batch to ensure data is written
+      final docRef = firestore.collection('users').doc(email);
+
+      Map<String, dynamic> userDoc = {
+        'name': autoGeneratedName,
+        'email': email,
+        'phone': userData['phone'],
+        'vehicle': userData['vehicle'],
+        'createdAt': FieldValue.serverTimestamp(),
+        'userType': 'normal',
+        'emailVerified': true,
+        'platform': isWeb ? 'web' : 'mobile',
+      };
+
+      if (fcmToken != null) {
+        userDoc['fcmToken'] = fcmToken;
+        userDoc['tokenUpdatedAt'] = FieldValue.serverTimestamp();
+      }
+
+      // FIXED: Use set with merge to ensure the document is created properly
+      await docRef.set(userDoc, SetOptions(merge: true));
+
+      // Wait a moment to ensure Firestore write is completed
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Verify the document was created
+      final verifyDoc = await docRef.get();
+      if (!verifyDoc.exists) {
+        throw Exception('Failed to create user document in Firestore');
+      }
+
+      // Cache user data to avoid future reads
+      _userDocCache = userDoc;
+      _userDocCacheTime = DateTime.now();
+
+      print('✅ Firestore user doc created and verified for $email with name: $autoGeneratedName');
+      if (fcmToken != null) {
+        print('✅ FCM token saved for user: $email');
+      }
+    } catch (e) {
+      print('❌ Error saving user to Firestore: $e');
+      throw Exception('Failed to save user data: $e');
+    }
+  }
+
+  // FIXED: Improved FCM token update with retry logic
+  Future<void> updateFCMToken(String email) async {
+    if (!isMobile) {
+      print('ℹ️ Skipping FCM token update on non-mobile platform');
+      return;
+    }
+
+    try {
+      String? fcmToken = await FirebaseMessaging.instance.getToken();
+
+      if (fcmToken == null) {
+        print('❌ Failed to get FCM token');
+        return;
+      }
+
+      print('📱 FCM Token obtained: ${fcmToken.substring(0, 20)}...');
+
+      final firestore = FirebaseFirestore.instance;
+      final docRef = firestore.collection('users').doc(email);
+
+      // FIXED: Add retry logic for FCM token update
+      int retryCount = 0;
+      const maxRetries = 3;
+      bool success = false;
+
+      while (!success && retryCount < maxRetries) {
+        try {
+          await docRef.set({
+            'fcmToken': fcmToken,
+            'tokenUpdatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          success = true;
+          print('✅ FCM token updated for user: $email');
+        } catch (e) {
+          retryCount++;
+          print('⚠️ FCM token update attempt $retryCount failed: $e');
+
+          if (retryCount < maxRetries) {
+            await Future.delayed(Duration(seconds: retryCount * 2));
+          }
+        }
+      }
+
+      if (!success) {
+        print('❌ Failed to update FCM token after $maxRetries attempts');
+      }
+    } catch (e) {
+      print('❌ Error updating FCM token: $e');
+    }
+  }
+
+  // FIXED: Improved Firebase user creation with better error handling
+  Future<Map<String, dynamic>> createFirebaseUser(String email, String password) async {
+    try {
+      print('🔥 Creating Firebase user account for: $email');
+
+      UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+
+      User? user = userCredential.user;
+
+      if (user != null) {
+        print('✅ Firebase user created successfully: ${user.email}');
+
+        // Send email verification
+        try {
+          await user.sendEmailVerification();
+          print('📧 Email verification sent to: ${user.email}');
+        } catch (e) {
+          print('⚠️ Warning: Could not send verification email: $e');
+          // Don't fail user creation just because email verification failed
+        }
+
+        return {
+          'success': true,
+          'message': 'Account created! Please verify your email.',
+          'user': user
+        };
+      } else {
+        throw Exception('Failed to create user account - user is null');
+      }
+    } on FirebaseAuthException catch (e) {
+      print('❌ Firebase Auth Error: ${e.code} - ${e.message}');
+
+      String errorMessage;
+      switch (e.code) {
+        case 'email-already-in-use':
+          errorMessage = 'Email is already registered. Please use a different email or try logging in.';
+          break;
+        case 'weak-password':
+          errorMessage = 'Password is too weak. Please use a stronger password (at least 6 characters).';
+          break;
+        case 'invalid-email':
+          errorMessage = 'Invalid email address format.';
+          break;
+        case 'operation-not-allowed':
+          errorMessage = 'Email/password accounts are not enabled. Please contact support.';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+          break;
+        default:
+          errorMessage = 'Account creation failed: ${e.message ?? e.code}';
+      }
+
+      return {
+        'success': false,
+        'message': errorMessage,
+        'error_code': e.code
+      };
+    } catch (e) {
+      print('❌ General Error creating user: $e');
+      return {
+        'success': false,
+        'message': 'Account creation failed: ${e.toString()}'
+      };
+    }
+  }
+
+  // FIXED: Improved email verification check with better caching
+  Future<bool> checkEmailVerificationOptimized() async {
+    try {
+      // Use cached result if very recent (within 10 seconds)
+      if (_lastVerificationCheck != null &&
+          _lastVerificationResult != null &&
+          DateTime.now().difference(_lastVerificationCheck!) < _verificationCacheWindow) {
+        print('🔍 Email verification from cache: $_lastVerificationResult');
+        return _lastVerificationResult!;
+      }
+
+      User? user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) {
+        print('🔍 No user found, email not verified');
+        _lastVerificationResult = false;
+        _lastVerificationCheck = DateTime.now();
+        return false;
+      }
+
+      // Always reload to get the most current verification status
+      await user.reload();
+      user = FirebaseAuth.instance.currentUser;
+
+      bool isVerified = user?.emailVerified ?? false;
+      _lastVerificationResult = isVerified;
+      _lastVerificationCheck = DateTime.now();
+
+      print('🔍 Email verification status: $isVerified for ${user?.email}');
+      return isVerified;
+    } catch (e) {
+      print('❌ Error checking email verification: $e');
+      // Don't cache errors
+      return false;
+    }
+  }
+
+  // Use the optimized version instead of the original
+  Future<bool> checkEmailVerification() async {
+    return await checkEmailVerificationOptimized();
+  }
+
+  // FIXED: Improved email verification completion handling
+  Future<bool> handleEmailVerificationComplete() async {
+    try {
+      print('✅ Starting email verification completion process...');
+
+      // Verify that email is actually verified
+      bool isVerified = await checkEmailVerification();
+      if (!isVerified) {
+        print('❌ Email verification not confirmed');
+        return false;
+      }
+
+      Map<String, String> userData = await loadSignupData();
+      if (userData.isEmpty) {
+        print('❌ No signup data found');
+        return false;
+      }
+
+      print('📝 Signup data found, saving to Firestore...');
+
+      // Save to Firestore with retry logic
+      try {
+        await saveUserToFirestore(userData);
+        print('✅ User data saved to Firestore successfully');
+      } catch (e) {
+        print('❌ Failed to save user data to Firestore: $e');
+        throw e;
+      }
+
+      await completeSignup();
+      print('✅ Email verification completion process finished');
+      return true;
+    } catch (e) {
+      print('❌ Error handling email verification completion: $e');
+      return false;
+    }
+  }
+
+  // Add debugging method to check user document existence
+  Future<bool> verifyUserDocumentExists(String email) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(email)
+          .get();
+
+      print('🔍 User document exists for $email: ${doc.exists}');
+      if (doc.exists) {
+        print('📄 User document data: ${doc.data()}');
+      }
+
+      return doc.exists;
+    } catch (e) {
+      print('❌ Error checking user document: $e');
+      return false;
+    }
+  }
+
+  // OPTIMIZATION 7: Clear caches on logout
+  Future<void> clearCaches() async {
+    _cachedAdminStatus = null;
+    _adminStatusCacheTime = null;
+    _userDocCache = null;
+    _userDocCacheTime = null;
+    _webSignupData.clear();
+    _webSignupStage = stageInitial;
+    _lastVerificationCheck = null;
+    _lastVerificationResult = null;
+
+    if (!isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_adminStatusKey);
+      await prefs.remove(_adminCacheExpiryKey);
+    }
+
+    print('🗑️ All caches cleared');
+  }
+
+  void setupFCMTokenRefreshListener() {
+    if (!isMobile) {
+      print('ℹ️ Skipping FCM token refresh listener on non-mobile platform');
+      return;
+    }
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((String newToken) async {
+      print('📱 FCM Token refreshed: ${newToken.substring(0, 20)}...');
+
+      _fcmTokenUpdateTimer?.cancel();
+      _fcmTokenUpdateTimer = Timer(Duration(seconds: 5), () async {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && user.email != null) {
+          await updateFCMToken(user.email!);
+        }
+      });
+    });
+  }
+
+  Future<void> checkAndStoreAdminPriority() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (_cachedAdminStatus != null &&
+        _adminStatusCacheTime != null &&
+        DateTime.now().difference(_adminStatusCacheTime!) < _adminCacheExpiry) {
+      print('✅ Using cached admin status: $_cachedAdminStatus');
+
+      if (!isWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('priority', _cachedAdminStatus! ? 'admin' : 'notadmin');
+      }
+      return;
+    }
+
+    final isAdmin = await getAdminStatus();
+
+    if (!isWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('priority', isAdmin ? 'admin' : 'notadmin');
+    }
+  }
+
   Future<bool> saveSignupData(Map<String, String> userData) async {
     try {
       if (isWeb) {
@@ -47,7 +612,6 @@ class SignUpService {
     }
   }
 
-  /// Save signup data for mobile (SharedPreferences)
   Future<bool> _saveSignupDataMobile(Map<String, String> userData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -61,8 +625,6 @@ class SignUpService {
     }
   }
 
-  /// Save signup data for web (Firestore temp storage)
-  /// Save signup data for web (SessionStorage)
   Future<bool> _saveSignupDataWeb(Map<String, String> userData) async {
     try {
       if (!kIsWeb) {
@@ -72,8 +634,6 @@ class SignUpService {
 
       final userDataJson = jsonEncode(userData);
       html.window.sessionStorage[_signupDataKey] = userDataJson;
-
-      // Also store in memory for quick access
       _webSignupData = Map.from(userData);
 
       print('📝 Web signup data saved to sessionStorage');
@@ -84,9 +644,6 @@ class SignUpService {
     }
   }
 
-
-
-  /// Load signup data (platform-specific)
   Future<Map<String, String>> loadSignupData() async {
     try {
       if (isWeb) {
@@ -100,7 +657,6 @@ class SignUpService {
     }
   }
 
-  /// Load signup data for mobile
   Future<Map<String, String>> _loadSignupDataMobile() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -124,9 +680,6 @@ class SignUpService {
     }
   }
 
-  /// Load signup data for web
-  /// Load signup data for web (SessionStorage)
-
   Future<Map<String, String>> _loadSignupDataWeb() async {
     try {
       if (!kIsWeb) {
@@ -134,13 +687,11 @@ class SignUpService {
         return {};
       }
 
-      // First check memory
       if (_webSignupData.isNotEmpty) {
         print('📖 Web signup data loaded from memory: ${_webSignupData.keys.toList()}');
         return _webSignupData;
       }
 
-      // Load from sessionStorage
       final userDataJson = html.window.sessionStorage[_signupDataKey];
 
       if (userDataJson != null) {
@@ -163,8 +714,6 @@ class SignUpService {
     }
   }
 
-
-  /// Clear signup data (platform-specific)
   Future<bool> clearSignupData() async {
     try {
       if (isWeb) {
@@ -178,7 +727,6 @@ class SignUpService {
     }
   }
 
-  /// Clear signup data for mobile
   Future<bool> _clearSignupDataMobile() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -193,9 +741,6 @@ class SignUpService {
     }
   }
 
-  /// Clear signup data for web
-  /// Clear signup data for web (SessionStorage)
-
   Future<bool> _clearSignupDataWeb() async {
     try {
       if (!kIsWeb) {
@@ -203,11 +748,9 @@ class SignUpService {
         return false;
       }
 
-      // Clear memory
       _webSignupData.clear();
       _webSignupStage = stageInitial;
 
-      // Clear sessionStorage
       html.window.sessionStorage.remove(_signupDataKey);
       html.window.sessionStorage.remove(_signupStageKey);
 
@@ -219,7 +762,6 @@ class SignUpService {
     }
   }
 
-  /// Set signup stage (platform-specific)
   Future<bool> setSignupStage(String stage) async {
     try {
       if (isWeb) {
@@ -233,7 +775,6 @@ class SignUpService {
     }
   }
 
-  /// Set signup stage for mobile
   Future<bool> _setSignupStageMobile(String stage) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -245,9 +786,6 @@ class SignUpService {
       return false;
     }
   }
-
-  /// Set signup stage for web
-  /// Set signup stage for web (SessionStorage)
 
   Future<bool> _setSignupStageWeb(String stage) async {
     try {
@@ -267,7 +805,6 @@ class SignUpService {
     }
   }
 
-  /// Get current signup stage (platform-specific)
   Future<String> getSignupStage() async {
     try {
       if (isWeb) {
@@ -281,7 +818,6 @@ class SignUpService {
     }
   }
 
-  /// Get signup stage for mobile
   Future<String> _getSignupStageMobile() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -294,9 +830,6 @@ class SignUpService {
     }
   }
 
-  /// Get signup stage for web
-  /// Get signup stage for web (SessionStorage)
-
   Future<String> _getSignupStageWeb() async {
     try {
       if (!kIsWeb) {
@@ -304,13 +837,11 @@ class SignUpService {
         return stageInitial;
       }
 
-      // First check memory
       if (_webSignupStage != stageInitial) {
         print('📊 Web current signup stage (memory): $_webSignupStage');
         return _webSignupStage;
       }
 
-      // Load from sessionStorage
       final stage = html.window.sessionStorage[_signupStageKey] ?? stageInitial;
       _webSignupStage = stage;
 
@@ -322,20 +853,12 @@ class SignUpService {
     }
   }
 
-  /// Clean up expired temp data (call this periodically or on app start)
-
-  /// Initialize web temp ID (call this on app start for web)
-
   String extractNameFromEmail(String email) {
     if (email.isEmpty) return '';
 
-    // Get the part before @ symbol
     String username = email.split('@')[0];
-
-    // Replace dots with spaces and format as proper name
     String name = username.replaceAll('.', ' ');
 
-    // Capitalize first letter of each word
     List<String> words = name.split(' ');
     words = words.map((word) => word.isEmpty ? '' :
     word[0].toUpperCase() + word.substring(1).toLowerCase()).toList();
@@ -343,262 +866,239 @@ class SignUpService {
     return words.join(' ');
   }
 
-  /// Checks if the current user is admin, saves priority to SharedPreferences.
-  /// Call after successful login.
-  Future<void> checkAndStoreAdminPriority() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
-    final String email = user.email!;
 
-    try {
-      final adminDoc = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(email)
-          .get();
 
-      if (isWeb) {
-        // For web, store in memory (you might want to use browser storage here)
-        if (adminDoc.exists) {
-          // Store in memory or implement browser storage
-          print('✅ Admin user detected (web)');
-        } else {
-          print('ℹ️ Not an admin (web)');
-        }
-      } else {
-        // For mobile, use SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        if (adminDoc.exists) {
-          await prefs.setString('priority', 'admin');
-          print('✅ Admin user detected & saved in prefs');
-        } else {
-          await prefs.setString('priority', 'notadmin');
-          print('ℹ️ Not an admin, priority set to notadmin in prefs');
-        }
-      }
-    } catch (e) {
-      if (!isWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('priority', 'notadmin');
-      }
-      print('❌ Error checking admin priority: $e');
+
+
+
+
+Future<Map<String, dynamic>> resendEmailVerification() async {
+  try {
+    User? user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return {
+        'success': false,
+        'message': 'No user found. Please sign up again.'
+      };
     }
-  }
 
-  /// Check if user has pending signup
-  Future<bool> hasPendingSignup() async {
-    try {
-      String stage = await getSignupStage();
-      Map<String, String> data = await loadSignupData();
-
-      bool hasPending = stage == stageEmailSent && data.isNotEmpty;
-      print('🔍 Has pending signup: $hasPending');
-      return hasPending;
-    } catch (e) {
-      print('❌ Error checking pending signup: $e');
-      return false;
+    if (user.emailVerified) {
+      return {
+        'success': false,
+        'message': 'Email is already verified!'
+      };
     }
+
+    await user.sendEmailVerification();
+    print('📧 Email verification resent to: ${user.email}');
+
+    return {
+      'success': true,
+      'message': 'Verification email sent successfully!'
+    };
+  } catch (e) {
+    print('❌ Error resending email verification: $e');
+    return {
+      'success': false,
+      'message': 'Failed to resend verification email: ${e.toString()}'
+    };
   }
+}
 
-  /// Get user data for restoration
-  Future<Map<String, String>> getPendingSignupData() async {
+Stream<bool> monitorEmailVerification() async* {
+  while (true) {
     try {
-      bool hasPending = await hasPendingSignup();
-      if (hasPending) {
-        return await loadSignupData();
-      }
-      return {};
-    } catch (e) {
-      print('❌ Error getting pending signup data: $e');
-      return {};
-    }
-  }
+      bool isVerified = await checkEmailVerification();
+      yield isVerified;
 
-  /// Process signup completion
-  Future<bool> completeSignup() async {
-    try {
-      // Set stage to completed
-      await setSignupStage(stageCompleted);
-
-      // Clear signup data as it's no longer needed
-      await clearSignupData();
-
-      print('✅ Signup completed and data cleared');
-      return true;
-    } catch (e) {
-      print('❌ Error completing signup: $e');
-      return false;
-    }
-  }
-
-  /// Check if email is verified using Firebase Auth
-  Future<bool> checkEmailVerification() async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
-
-      if (user == null) {
-        print('🔍 No user found, email not verified');
-        return false;
+      if (isVerified) {
+        break;
       }
 
-      // Reload user to get latest verification status
+      await Future.delayed(Duration(seconds: 3));
+    } catch (e) {
+      print('❌ Error in email verification monitoring: $e');
+      yield false;
+      await Future.delayed(Duration(seconds: 3));
+    }
+  }
+}
+
+Future<Map<String, dynamic>> sendVerificationEmail(String email) async {
+  try {
+    User? user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return {
+        'success': false,
+        'message': 'No user found. Please sign up or log in again.'
+      };
+    }
+
+    if (user.email != email) {
       await user.reload();
       user = FirebaseAuth.instance.currentUser;
-
-      bool isVerified = user?.emailVerified ?? false;
-      print('🔍 Email verification status: $isVerified');
-      return isVerified;
-    } catch (e) {
-      print('❌ Error checking email verification: $e');
-      return false;
-    }
-  }
-
-  /// Start continuous email verification monitoring
-  Stream<bool> monitorEmailVerification() async* {
-    while (true) {
-      try {
-        bool isVerified = await checkEmailVerification();
-        yield isVerified;
-
-        // If verified, stop monitoring
-        if (isVerified) {
-          break;
-        }
-
-        // Wait 3 seconds before next check
-        await Future.delayed(Duration(seconds: 3));
-      } catch (e) {
-        print('❌ Error in email verification monitoring: $e');
-        yield false;
-        await Future.delayed(Duration(seconds: 3));
-      }
-    }
-  }
-
-  /// Create Firebase user account (call this during signup)
-  Future<Map<String, dynamic>> createFirebaseUser(String email, String password) async {
-    try {
-      print('🔥 Creating Firebase user account...');
-
-      UserCredential userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
-
-      User? user = userCredential.user;
-
-      if (user != null) {
-        // Send email verification
-        await user.sendEmailVerification();
-        print('📧 Email verification sent to: ${user.email}');
-
-        return {
-          'success': true,
-          'message': 'Account created! Please verify your email.',
-          'user': user
-        };
-      } else {
-        throw Exception('Failed to create user account');
-      }
-    } on FirebaseAuthException catch (e) {
-      print('❌ Firebase Auth Error: ${e.code} - ${e.message}');
-
-      String errorMessage;
-      switch (e.code) {
-        case 'email-already-in-use':
-          errorMessage = 'Email is already registered. Please use a different email.';
-          break;
-        case 'weak-password':
-          errorMessage = 'Password is too weak. Please use a stronger password.';
-          break;
-        case 'invalid-email':
-          errorMessage = 'Invalid email address format.';
-          break;
-        default:
-          errorMessage = 'Account creation failed: ${e.message}';
-      }
-
-      return {
-        'success': false,
-        'message': errorMessage,
-        'error_code': e.code
-      };
-    } catch (e) {
-      print('❌ General Error: $e');
-      return {
-        'success': false,
-        'message': 'Account creation failed: ${e.toString()}'
-      };
-    }
-  }
-
-  /// Resend email verification
-  Future<Map<String, dynamic>> resendEmailVerification() async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
-
-      if (user == null) {
+      if (user == null || user.email != email) {
         return {
           'success': false,
-          'message': 'No user found. Please sign up again.'
+          'message': 'Logged in user does not match the email provided.'
         };
       }
+    }
 
-      if (user.emailVerified) {
-        return {
-          'success': false,
-          'message': 'Email is already verified!'
-        };
-      }
-
-      await user.sendEmailVerification();
-      print('📧 Email verification resent to: ${user.email}');
-
-      return {
-        'success': true,
-        'message': 'Verification email sent successfully!'
-      };
-    } catch (e) {
-      print('❌ Error resending email verification: $e');
+    if (user.emailVerified) {
       return {
         'success': false,
-        'message': 'Failed to resend verification email: ${e.toString()}'
+        'message': 'Email is already verified!'
       };
     }
-  }
 
-  /// Validate user input data
+    await user.sendEmailVerification();
+    print('📧 Email verification sent to: ${user.email}');
+
+    return {
+      'success': true,
+      'message': 'Verification email sent successfully!'
+    };
+  } catch (e) {
+    print('❌ Error sending Firebase verification email: $e');
+    return {
+      'success': false,
+      'message': 'Failed to send verification email: ${e.toString()}'
+    };
+  }
+}
+
+Map<String, String> getFormattedUserData(Map<String, String> rawData) {
+  return {
+    'email': rawData['email'] ?? '',
+    'phone': rawData['phone'] ?? '',
+    'vehicle': rawData['vehicle'] ?? '',
+    'password': rawData['password'] ?? '',
+    'confirmPassword': rawData['confirmPassword'] ?? '',
+  };
+}
+
+Future<bool> hasPendingSignup() async {
+  try {
+    String stage = await getSignupStage();
+    Map<String, String> data = await loadSignupData();
+
+    bool hasPending = stage == stageEmailSent && data.isNotEmpty;
+    print('🔍 Has pending signup: $hasPending');
+    return hasPending;
+  } catch (e) {
+    print('❌ Error checking pending signup: $e');
+    return false;
+  }
+}
+
+Future<Map<String, String>> getPendingSignupData() async {
+  try {
+    bool hasPending = await hasPendingSignup();
+    if (hasPending) {
+      return await loadSignupData();
+    }
+    return {};
+  } catch (e) {
+    print('❌ Error getting pending signup data: $e');
+    return {};
+  }
+}
+
+Future<bool> completeSignup() async {
+  try {
+    await setSignupStage(stageCompleted);
+    await clearSignupData();
+
+    print('✅ Signup completed and data cleared');
+    return true;
+  } catch (e) {
+    print('❌ Error completing signup: $e');
+    return false;
+  }
+}
+
+Future<void> initialize() async {
+  if (!isWeb) {
+    setupFCMTokenRefreshListener();
+  }
+  print('🚀 SignUpService initialized for ${isWeb ? 'web' : 'mobile'}');
+}
+
+Future<void> debugPrintState() async {
+  print('🔍 === SIGNUP SERVICE DEBUG STATE ===');
+  print('📱 Platform: ${isWeb ? 'Web' : 'Mobile'}');
+  String stage = await getSignupStage();
+  Map<String, String> data = await loadSignupData();
+  bool hasPending = await hasPendingSignup();
+  bool isVerified = await checkEmailVerification();
+
+  print('📊 Current Stage: $stage');
+  print('📝 Stored Data Keys: ${data.keys.toList()}');
+  print('⏳ Has Pending: $hasPending');
+  print('✅ Email Verified: $isVerified');
+  print('💾 Admin Status Cache: $_cachedAdminStatus');
+  print('⏰ Admin Cache Time: $_adminStatusCacheTime');
+  if (isWeb) {
+    print('🌐 Web Temp ID: $_webTempId');
+  }
+  print('🔍 ================================');
+}
+
+Future<void> preloadUserData(String email) async {
+  try {
+    if (_userDocCache != null && _userDocCacheTime != null &&
+        DateTime.now().difference(_userDocCacheTime!) < Duration(minutes: 30)) {
+      print('✅ User data already cached');
+      return;
+    }
+
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(email)
+        .get();
+
+    if (userDoc.exists) {
+      _userDocCache = userDoc.data();
+      _userDocCacheTime = DateTime.now();
+      print('✅ User data preloaded and cached for: $email');
+    }
+  } catch (e) {
+    print('❌ Error preloading user data: $e');
+  }
+}
+
+
+
+// FIXED: Corrected syntax error in validateSignupData method
   Map<String, String?> validateSignupData(Map<String, String> data) {
     Map<String, String?> errors = {};
 
-    // Remove name validation - name will be auto-generated from email
-
-    // Email validation
     if (data['email'] == null || data['email']!.isEmpty) {
       errors['email'] = 'Email cannot be empty';
     } else if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(data['email']!)) {
       errors['email'] = 'Enter a valid email';
     }
 
-    // Phone validation
     if (data['phone'] == null || data['phone']!.isEmpty) {
       errors['phone'] = 'Phone number cannot be empty';
     } else if (data['phone']!.length < 10) {
       errors['phone'] = 'Enter a valid phone number';
     }
 
-    // Vehicle validation
     if (data['vehicle'] == null || data['vehicle']!.isEmpty) {
       errors['vehicle'] = 'Vehicle number cannot be empty';
     }
 
-    // Password validation
     if (data['password'] == null || data['password']!.isEmpty) {
       errors['password'] = 'Password cannot be empty';
     } else if (data['password']!.length < 6) {
       errors['password'] = 'Password must be at least 6 characters';
     }
 
-    // Confirm password validation
     if (data['confirmPassword'] == null || data['confirmPassword']!.isEmpty) {
       errors['confirmPassword'] = 'Please confirm your password';
     } else if (data['password'] != data['confirmPassword']) {
@@ -608,351 +1108,154 @@ class SignUpService {
     return errors;
   }
 
-  /// Send Firebase email verification to current user
-  Future<Map<String, dynamic>> sendVerificationEmail(String email) async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
 
-      if (user == null) {
-        return {
-          'success': false,
-          'message': 'No user found. Please sign up or log in again.'
-        };
-      }
+void invalidateAdminCache() {
+  _cachedAdminStatus = null;
+  _adminStatusCacheTime = null;
+  print('🔄 Admin cache invalidated');
+}
 
-      if (user.email != email) {
-        // Optionally reload user (you may remove this check if you are sure user is always up-to-date)
-        await user.reload();
-        user = FirebaseAuth.instance.currentUser;
-        if (user == null || user.email != email) {
-          return {
-            'success': false,
-            'message': 'Logged in user does not match the email provided.'
-          };
-        }
-      }
+void invalidateUserDataCache() {
+  _userDocCache = null;
+  _userDocCacheTime = null;
+  print('🔄 User data cache invalidated');
+}
 
-      if (user.emailVerified) {
-        return {
-          'success': false,
-          'message': 'Email is already verified!'
-        };
-      }
+Future<void> logout() async {
+  try {
+    await FirebaseAuth.instance.signOut();
+    await clearCaches();
+    _fcmTokenUpdateTimer?.cancel();
+    _fcmTokenUpdateTimer = null;
 
-      await user.sendEmailVerification();
-      print('📧 Email verification sent to: ${user.email}');
-
-      return {
-        'success': true,
-        'message': 'Verification email sent successfully!'
-      };
-    } catch (e) {
-      print('❌ Error sending Firebase verification email: $e');
-      return {
-        'success': false,
-        'message': 'Failed to send verification email: ${e.toString()}'
-      };
-    }
+    print('✅ User logged out successfully with all data cleared');
+  } catch (e) {
+    print('❌ Error during logout: $e');
   }
+}
 
-  /// Get formatted user data for display
-  Map<String, String> getFormattedUserData(Map<String, String> rawData) {
-    return {
-      // Remove 'name' field since it will be auto-generated
-      'email': rawData['email'] ?? '',
-      'phone': rawData['phone'] ?? '',
-      'vehicle': rawData['vehicle'] ?? '',
-      'password': rawData['password'] ?? '',
-      'confirmPassword': rawData['confirmPassword'] ?? '',
-    };
-  }
-
-  /// Debug method to print current state
-  Future<void> debugPrintState() async {
-    print('🔍 === SIGNUP SERVICE DEBUG STATE ===');
-    print('📱 Platform: ${isWeb ? 'Web' : 'Mobile'}');
-    String stage = await getSignupStage();
-    Map<String, String> data = await loadSignupData();
-    bool hasPending = await hasPendingSignup();
-    bool isVerified = await checkEmailVerification();
-
-    print('📊 Current Stage: $stage');
-    print('📝 Stored Data Keys: ${data.keys.toList()}');
-    print('⏳ Has Pending: $hasPending');
-    print('✅ Email Verified: $isVerified');
-    if (isWeb) {
-      print('🌐 Web Temp ID: $_webTempId');
-    }
-    print('🔍 ================================');
-  }
-
-  Future<void> updateFCMToken(String email) async {
-    if (!isMobile) {
-      print('ℹ️ Skipping FCM token update on non-mobile platform');
-      return;
+Future<Map<String, dynamic>?> getUserData(String email) async {
+  try {
+    if (_userDocCache != null && _userDocCacheTime != null &&
+        DateTime.now().difference(_userDocCacheTime!) < Duration(minutes: 30)) {
+      print('✅ User data retrieved from cache');
+      return _userDocCache;
     }
 
-    try {
-      String? fcmToken = await FirebaseMessaging.instance.getToken();
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(email)
+        .get();
 
-      if (fcmToken == null) {
-        print('❌ Failed to get FCM token');
-        return;
-      }
-
-      print('📱 FCM Token obtained: ${fcmToken.substring(0, 20)}...');
-
-      final firestore = FirebaseFirestore.instance;
-      final docRef = firestore.collection('users').doc(email);
-
-      await docRef.update({
-        'fcmToken': fcmToken,
-        'tokenUpdatedAt': FieldValue.serverTimestamp(),
-      });
-
-      print('✅ FCM token updated for user: $email');
-    } catch (e) {
-      print('❌ Error updating FCM token: $e');
-
-      // Attempt to set document if update fails (e.g., doc doesn't exist)
-      try {
-        String? fcmToken = await FirebaseMessaging.instance.getToken();
-        if (fcmToken != null) {
-          final firestore = FirebaseFirestore.instance;
-          final docRef = firestore.collection('users').doc(email);
-
-          await docRef.set({
-            'fcmToken': fcmToken,
-            'tokenUpdatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-
-          print('✅ FCM token set for new user: $email');
-        }
-      } catch (createError) {
-        print('❌ Error creating document with FCM token: $createError');
-      }
-    }
-  }
-
-  void setupFCMTokenRefreshListener() {
-    if (!isMobile) {
-      print('ℹ️ Skipping FCM token refresh listener on non-mobile platform');
-      return;
+    if (userDoc.exists) {
+      _userDocCache = userDoc.data();
+      _userDocCacheTime = DateTime.now();
+      print('✅ User data retrieved from Firestore and cached');
+      return _userDocCache;
     }
 
-    FirebaseMessaging.instance.onTokenRefresh.listen((String newToken) async {
-      print('📱 FCM Token refreshed: ${newToken.substring(0, 20)}...');
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null && user.email != null) {
-        await updateFCMToken(user.email!);
-      }
-    });
+    return null;
+  } catch (e) {
+    print('❌ Error getting user data: $e');
+    return null;
   }
+}
 
-  // Update the saveUserToFirestore method to include FCM token
-  Future<void> saveUserToFirestore(Map<String, String> userData) async {
+Future<bool> updateUserProfile(String email, Map<String, dynamic> updates) async {
+  try {
     final firestore = FirebaseFirestore.instance;
-    final email = userData['email'] ?? '';
-
-    if (email.isEmpty) throw Exception('Email required for Firestore user doc');
-
-    // Extract name from email automatically
-    String autoGeneratedName = extractNameFromEmail(email);
-
-    // Get FCM token (only for mobile)
-    String? fcmToken;
-    if (isMobile) {
-      fcmToken = await FirebaseMessaging.instance.getToken();
-    }
-
     final docRef = firestore.collection('users').doc(email);
-    Map<String, dynamic> userDoc = {
-      'name': autoGeneratedName,
-      'email': email,
-      'phone': userData['phone'],
-      'vehicle': userData['vehicle'],
-      'createdAt': FieldValue.serverTimestamp(),
-      'userType': 'normal',
-      'emailVerified': true,
-      'platform': isWeb ? 'web' : 'mobile',
-    };
 
-    // Add FCM token if available (mobile only)
-    if (fcmToken != null) {
-      userDoc['fcmToken'] = fcmToken;
-      userDoc['tokenUpdatedAt'] = FieldValue.serverTimestamp();
+    updates['updatedAt'] = FieldValue.serverTimestamp();
+
+    await docRef.update(updates);
+
+    if (_userDocCache != null) {
+      _userDocCache!.addAll(updates);
+      print('✅ User profile updated and cache refreshed');
+    } else {
+      print('✅ User profile updated');
     }
 
-    await docRef.set(userDoc, SetOptions(merge: true));
-
-    print('✅ Firestore user doc created for $email with name: $autoGeneratedName');
-    if (fcmToken != null) {
-      print('✅ FCM token saved for user: $email');
-    }
+    return true;
+  } catch (e) {
+    print('❌ Error updating user profile: $e');
+    invalidateUserDataCache();
+    return false;
   }
+}
 
-  Future<Map<String, dynamic>> signInWithEmail(String email, String password) async {
+void setConnectionState(bool isOnline) {
+  _isOnline = isOnline;
+  print('🌐 Connection state updated: ${isOnline ? 'Online' : 'Offline'}');
+}
+
+bool get isOnline => _isOnline;
+
+Future<T?> retryOperation<T>(
+    Future<T> Function() operation, {
+      int maxRetries = 3,
+      Duration delay = const Duration(seconds: 1),
+    }) async {
+  for (int i = 0; i < maxRetries; i++) {
     try {
-      // First check if user exists in either users or admins collection
-      final firestore = FirebaseFirestore.instance;
-      final userDoc = await firestore.collection('users').doc(email).get();
-      final adminDoc = await firestore.collection('admins').doc(email).get();
-
-      if (!userDoc.exists && !adminDoc.exists) {
-        return {
-          'success': false,
-          'message': 'User doesn\'t exist. Please sign up first.',
-        };
+      if (!_isOnline && i == 0) {
+        print('📡 Device offline, skipping operation');
+        return null;
       }
 
-      UserCredential userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password);
-
-      User? user = userCredential.user;
-      if (user == null) {
-        throw Exception("Login failed. Please try again.");
-      }
-
-      await user.reload();
-      user = FirebaseAuth.instance.currentUser;
-
-      // Check admin status first
-      await checkAndStoreAdminPriority();
-
-      // For mobile, check SharedPreferences for admin status
-      bool isAdmin = false;
-      if (!isWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        isAdmin = prefs.getString('priority') == 'admin';
-      } else {
-        // For web, use the adminDoc we already fetched
-        isAdmin = adminDoc.exists;
-      }
-
-      if (!(user?.emailVerified ?? false)) {
-        // DON'T sign out - keep user logged in for verification
-        return {
-          'success': false,
-          'emailNotVerified': true,
-          'message': 'Please verify your email before logging in.',
-        };
-      }
-
-      // Update FCM token on successful login (mobile only)
-      if (isMobile) {
-        await updateFCMToken(email);
-      }
-
-      // Email is verified - check if admin for navigation
-      if (isAdmin) {
-        return {
-          'success': true,
-          'user': user,
-          'isAdmin': true,
-          'message': 'Admin login successful!',
-        };
-      }
-
-      return {
-        'success': true,
-        'user': user,
-        'message': 'Login successful!',
-      };
-    } on FirebaseAuthException catch (e) {
-      String msg = 'Login failed. Please try again.';
-      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-email') {
-        msg = 'Incorrect credentials. Please check your email and password.';
-      }
-      return {
-        'success': false,
-        'message': msg,
-      };
+      return await operation();
     } catch (e) {
-      return {
-        'success': false,
-        'message': e.toString(),
-      };
-    }
-  }
+      print('❌ Operation failed (attempt ${i + 1}/$maxRetries): $e');
 
-  // Update the handleEmailVerificationComplete method
-  Future<bool> handleEmailVerificationComplete() async {
-    try {
-      print('✅ Email verification completed successfully!');
-      // Get user data
-      Map<String, String> userData = await loadSignupData();
-      // Write user data to Firestore before clearing (now includes FCM token)
-      await saveUserToFirestore(userData);
-      // Complete the signup process (stage & clear prefs)
-      await completeSignup();
-      return true;
-    } catch (e) {
-      print('❌ Error handling email verification completion: $e');
-      return false;
-    }
-  }
-
-  /// Initialize the service (call this on app start)
-  /// Initialize the service (call this on app start)
-  ///
-  ///
-  Future<void> initialize() async {
-    if (!isWeb) {
-      setupFCMTokenRefreshListener();
-    }
-    print('🚀 SignUpService initialized for ${isWeb ? 'web' : 'mobile'}');
-  }
-
-
-
-  /// Get admin status (platform-specific)
-  Future<bool> getAdminStatus() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return false;
-
-      if (isWeb) {
-        // For web, check Firestore directly
-        final adminDoc = await FirebaseFirestore.instance
-            .collection('admins')
-            .doc(user.email!)
-            .get();
-        return adminDoc.exists;
-      } else {
-        // For mobile, check SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        return prefs.getString('priority') == 'admin';
-      }
-    } catch (e) {
-      print('❌ Error getting admin status: $e');
-      return false;
-    }
-  }
-
-  /// Set up Firestore security rules for temp_data collection
-  /// Add these rules to your Firestore security rules:
-  /*
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      // Existing rules...
-
-      // Temp data rules
-      match /temp_data/{tempId} {
-        allow read, write: if request.auth != null;
-        allow delete: if request.auth != null ||
-                     resource.data.expiresAt < request.time;
+      if (i < maxRetries - 1) {
+        await Future.delayed(delay * (i + 1));
       }
     }
   }
-  */
 
-  /// Cleanup method to be called periodically (e.g., via Cloud Functions)
+  print('❌ Operation failed after $maxRetries retries');
+  return null;
+}
 
-  /// Restore web session (call this when user returns to web app)
+Future<String?> getFCMToken({bool forceRefresh = false}) async {
+  if (!isMobile) return null;
 
-  /// Enhanced error handling for web-specific issues
+  try {
+    if (!forceRefresh &&
+        _currentFCMToken != null &&
+        _fcmTokenTimestamp != null &&
+        DateTime.now().difference(_fcmTokenTimestamp!) < Duration(hours: 1)) {
+      return _currentFCMToken;
+    }
+
+    String? token = await FirebaseMessaging.instance.getToken();
+    _currentFCMToken = token;
+    _fcmTokenTimestamp = DateTime.now();
+
+    return token;
+  } catch (e) {
+    print('❌ Error getting FCM token: $e');
+    return null;
+  }
+}
+
+void dispose() {
+  _fcmTokenUpdateTimer?.cancel();
+  _fcmTokenUpdateTimer = null;
+
+  _cachedAdminStatus = null;
+  _adminStatusCacheTime = null;
+  _userDocCache = null;
+  _userDocCacheTime = null;
+  _webSignupData.clear();
+  _currentFCMToken = null;
+  _fcmTokenTimestamp = null;
+  _lastVerificationCheck = null;
+  _lastVerificationResult = null;
+
+  print('🧹 SignUpService disposed and cleaned up');
+}
 
 
 }

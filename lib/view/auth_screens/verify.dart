@@ -21,7 +21,9 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
   final SignUpService _signUpService = SignUpService();
   bool? isVerified;
   bool isResending = false;
+  bool isCancelling = false; // Add flag to prevent multiple cancel operations
   StreamSubscription<bool>? emailVerificationSubscription;
+  Timer? pendingSignupTimer; // Store timer reference
 
   // Animation Controllers
   late AnimationController _fadeController;
@@ -77,18 +79,23 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
     _startEntryAnimation();
     _startEmailVerificationMonitor();
 
-    // Periodic check for signup data existence
-    Timer.periodic(Duration(seconds: 5), (timer) async {
+    // FIXED: Store timer reference and add better error handling
+    pendingSignupTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
       if (!mounted) {
         timer.cancel();
         return;
       }
 
-      bool hasPendingSignup = await _signUpService.hasPendingSignup();
-      if (!hasPendingSignup) {
-        timer.cancel();
-        print('⚠️ Signup data disappeared, auto-cancelling');
-        await _cancelSignUp();
+      try {
+        bool hasPendingSignup = await _signUpService.hasPendingSignup();
+        if (!hasPendingSignup) {
+          timer.cancel();
+          print('⚠️ Signup data disappeared, auto-cancelling');
+          await _cancelSignUpSafely();
+        }
+      } catch (e) {
+        print('❌ Error checking pending signup: $e');
+        // Don't auto-cancel on error, just log it
       }
     });
   }
@@ -159,14 +166,18 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
 
   void _startEntryAnimation() {
     Future.delayed(const Duration(milliseconds: 100), () {
-      _fadeController.forward();
-      _slideController.forward();
+      if (mounted) {
+        _fadeController.forward();
+        _slideController.forward();
+      }
     });
   }
 
   @override
   void dispose() {
+    // FIXED: Proper cleanup to prevent memory leaks and errors
     emailVerificationSubscription?.cancel();
+    pendingSignupTimer?.cancel();
     _fadeController.dispose();
     _slideController.dispose();
     _scaleController.dispose();
@@ -177,66 +188,128 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
 
   void _startEmailVerificationMonitor() {
     emailVerificationSubscription?.cancel();
-    emailVerificationSubscription = _signUpService.monitorEmailVerification().listen((verified) async {
-      setState(() {
-        isVerified = verified;
-      });
+    emailVerificationSubscription = _signUpService.monitorEmailVerification().listen(
+          (verified) async {
+        if (!mounted) return;
 
-      bool hasPendingSignup = await _signUpService.hasPendingSignup();
+        setState(() {
+          isVerified = verified;
+        });
 
-      if (!hasPendingSignup) {
-        print('⚠️ No signup data found, cancelling verification process');
-        await _cancelSignUp();
-        return;
-      }
+        try {
+          bool hasPendingSignup = await _signUpService.hasPendingSignup();
 
-      if (verified) {
-        await Future.delayed(const Duration(seconds: 1));
-        await _signUpService.handleEmailVerificationComplete();
-        _showMessage('Email verified! Account created successfully!');
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => MysplashScreen()),
-                (route) => false,
-          );
+          if (!hasPendingSignup) {
+            print('⚠️ No signup data found, cancelling verification process');
+            await _cancelSignUpSafely();
+            return;
+          }
+
+          if (verified) {
+            await Future.delayed(const Duration(seconds: 1));
+            await _signUpService.handleEmailVerificationComplete();
+            _showMessage('Email verified! Account created successfully!');
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => MysplashScreen()),
+                    (route) => false,
+              );
+            }
+          }
+        } catch (e) {
+          print('❌ Error in email verification monitor: $e');
+          if (mounted) {
+            _showMessage('An error occurred during verification. Please try again.');
+          }
         }
-      }
-    });
+      },
+      onError: (error) {
+        print('❌ Email verification stream error: $error');
+        if (mounted) {
+          _showMessage('Verification monitoring error. Please refresh the page.');
+        }
+      },
+    );
   }
 
   Future<void> _resendVerificationEmail() async {
+    if (isResending) return; // Prevent multiple simultaneous requests
+
     setState(() => isResending = true);
     HapticFeedback.lightImpact();
-    final result = await _signUpService.resendEmailVerification();
-    setState(() => isResending = false);
-    _showMessage(result['message']);
+
+    try {
+      final result = await _signUpService.resendEmailVerification();
+      if (mounted) {
+        _showMessage(result['message'] ?? 'Verification email sent');
+      }
+    } catch (e) {
+      print('❌ Error resending verification email: $e');
+      if (mounted) {
+        _showMessage('Failed to resend email. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isResending = false);
+      }
+    }
+  }
+
+  // FIXED: Add safer cancel method to prevent multiple operations
+  Future<void> _cancelSignUpSafely() async {
+    if (isCancelling) {
+      print('⚠️ Cancel already in progress, ignoring duplicate request');
+      return;
+    }
+    await _cancelSignUp();
   }
 
   Future<void> _cancelSignUp() async {
+    if (isCancelling) return; // Prevent multiple cancel operations
+
+    setState(() => isCancelling = true);
+
     try {
       HapticFeedback.mediumImpact();
 
-      // Show loading indicator with glassmorphism
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => _buildLoadingDialog(),
+      // FIXED: Show loading dialog with proper error handling
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => _buildLoadingDialog(),
+        );
+      }
+
+      // FIXED: Cancel subscriptions and timers first
+      emailVerificationSubscription?.cancel();
+      pendingSignupTimer?.cancel();
+
+      // FIXED: Add timeout to prevent hanging
+      await Future.wait([
+        _signUpService.clearSignupData(),
+        _deleteFirebaseUserSafely(),
+      ]).timeout(
+        Duration(seconds: 15),
+        onTimeout: () {
+          print('⚠️ Cancel operation timed out');
+          throw TimeoutException('Operation timed out', Duration(seconds: 15));
+        },
       );
 
-      await _signUpService.clearSignupData();
-      emailVerificationSubscription?.cancel();
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null && !currentUser.emailVerified) {
-        await currentUser.delete();
+      // FIXED: Ensure Firebase signout
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (e) {
+        print('⚠️ Firebase signout error (non-critical): $e');
       }
 
-      await FirebaseAuth.instance.signOut();
-
+      // FIXED: Always dismiss loading dialog before navigation
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // Dismiss loading dialog
       }
 
+      // FIXED: Navigate with better error handling
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => MysplashScreen()),
@@ -247,59 +320,93 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
       _showMessage('Signup cancelled successfully');
 
     } catch (e) {
+      print('❌ Error during signup cancellation: $e');
+
+      // FIXED: Always dismiss loading dialog on error
       if (mounted) {
-        Navigator.of(context).pop();
+        try {
+          Navigator.of(context).pop(); // Dismiss loading dialog
+        } catch (popError) {
+          print('⚠️ Error dismissing dialog: $popError');
+        }
       }
 
-      print('❌ Error during signup cancellation: $e');
-      _showMessage('Error cancelling signup. Please try again.');
+      // FIXED: Still try to navigate even if cleanup failed
+      if (mounted) {
+        _showMessage('Error cancelling signup, but returning to main screen');
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => MysplashScreen()),
+              (route) => false,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isCancelling = false);
+      }
+    }
+  }
+
+  // FIXED: Safer Firebase user deletion
+  Future<void> _deleteFirebaseUserSafely() async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.emailVerified) {
+        await currentUser.delete();
+        print('✅ Unverified Firebase user deleted');
+      }
+    } catch (e) {
+      print('⚠️ Could not delete Firebase user (non-critical): $e');
+      // This is non-critical - user might be already deleted or have different state
     }
   }
 
   Widget _buildLoadingDialog() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 50),
-        decoration: BoxDecoration(
-          color: isDarkMode
-              ? Colors.white.withOpacity(0.12)
-              : Colors.white.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(25),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.3),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDarkMode ? 0.4 : 0.15),
-              blurRadius: 30,
-              spreadRadius: 5,
+    return WillPopScope(
+      onWillPop: () async => false, // Prevent dismissing with back button
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 50),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.12)
+                : Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(25),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.3),
+              width: 1.5,
             ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(25),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Padding(
-              padding: const EdgeInsets.all(35),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    'Cancelling signup',
-                    style: TextStyle(
-                      color: _currentTheme.textTheme.bodyLarge!.color,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDarkMode ? 0.4 : 0.15),
+                blurRadius: 30,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(25),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Padding(
+                padding: const EdgeInsets.all(35),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                    SizedBox(height: 20),
+                    Text(
+                      'Cancelling signup...',
+                      style: TextStyle(
+                        color: _currentTheme.textTheme.bodyLarge!.color,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -308,21 +415,25 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
     );
   }
 
-
-
   void _showMessage(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: Colors.orange,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
+
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          duration: Duration(seconds: 3),
         ),
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      ),
-    );
+      );
+    } catch (e) {
+      print('❌ Error showing message: $e');
+    }
   }
 
   @override
@@ -342,8 +453,6 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
             animation: _backgroundAnimation,
             builder: (context, child) {
               return Container(
-
-
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: isDarkMode
@@ -362,7 +471,6 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
                     transform: GradientRotation(_backgroundAnimation.value),
                   ),
                 ),
-
                 child: Stack(
                   children: [
                     // Animated background particles
@@ -444,14 +552,16 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
       child: Align(
         alignment: Alignment.topLeft,
         child: GestureDetector(
-          onTap: () {
+          onTap: isCancelling ? null : () {
             HapticFeedback.lightImpact();
-            _cancelSignUp();
+            _cancelSignUpSafely();
           },
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isDarkMode
+              color: isCancelling
+                  ? Colors.grey.withOpacity(0.3)
+                  : isDarkMode
                   ? Colors.white.withOpacity(0.15)
                   : Colors.white.withOpacity(0.25),
               borderRadius: BorderRadius.circular(15),
@@ -473,7 +583,11 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
                 filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                 child: Icon(
                   Icons.arrow_back_ios,
-                  color: isDarkMode ? Colors.white : Colors.indigo.shade700,
+                  color: isCancelling
+                      ? Colors.grey
+                      : isDarkMode
+                      ? Colors.white
+                      : Colors.indigo.shade700,
                   size: 20,
                 ),
               ),
@@ -538,8 +652,6 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Email icon with pulse animation
-
                     // Title
                     _buildTitle(),
                     SizedBox(height: isSmallScreen ? 15 : 20),
@@ -568,7 +680,6 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
     );
   }
 
-
   Widget _buildTitle() {
     return Text(
       'Email Verification',
@@ -585,7 +696,6 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
   Widget _buildEmailDescription() {
     return Column(
       children: [
-
         Text(
           'We sent a verification email to:',
           style: TextStyle(
@@ -596,7 +706,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
         ),
         const SizedBox(height: 15),
         Text(
-          'After clicking the link , please return to this page to continue.',
+          'After clicking the link, please return to this page to continue.',
           style: TextStyle(
             color: Colors.orange,
             fontSize: 14,
@@ -786,24 +896,24 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
 
   Widget _buildResendButton() {
     return GestureDetector(
-      onTap: isResending ? null : _resendVerificationEmail,
+      onTap: (isResending || isCancelling) ? null : _resendVerificationEmail,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         width: double.infinity,
         height: 50,
         decoration: BoxDecoration(
-          gradient: !isResending
+          gradient: !(isResending || isCancelling)
               ? LinearGradient(
             colors: [Colors.orange.shade400, Colors.orange.shade600],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           )
               : null,
-          color: isResending ? Colors.grey.shade400 : null,
+          color: (isResending || isCancelling) ? Colors.grey.shade400 : null,
           borderRadius: BorderRadius.circular(25),
           boxShadow: [
             BoxShadow(
-              color: (!isResending ? Colors.orange.shade400 : Colors.grey).withOpacity(0.4),
+              color: (!(isResending || isCancelling) ? Colors.orange.shade400 : Colors.grey).withOpacity(0.4),
               blurRadius: 15,
               offset: const Offset(0, 6),
             ),
@@ -843,27 +953,39 @@ class _VerifyEmailPageState extends State<VerifyEmailPage>
 
   Widget _buildCancelButton() {
     return GestureDetector(
-      onTap: _cancelSignUp,
+      onTap: isCancelling ? null : _cancelSignUpSafely,
       child: Container(
         width: double.infinity,
         height: 50,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: !isCancelling
+              ? LinearGradient(
             colors: [Colors.red.shade400, Colors.red.shade600],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-          ),
+          )
+              : null,
+          color: isCancelling ? Colors.grey.shade400 : null,
           borderRadius: BorderRadius.circular(25),
           boxShadow: [
             BoxShadow(
-              color: Colors.red.shade400.withOpacity(0.4),
+              color: (!isCancelling ? Colors.red.shade400 : Colors.grey).withOpacity(0.4),
               blurRadius: 15,
               offset: const Offset(0, 6),
             ),
           ],
         ),
         child: Center(
-          child: Text(
+          child: isCancelling
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              strokeWidth: 2,
+            ),
+          )
+              : Text(
             "CANCEL",
             style: TextStyle(
               color: Colors.white,
@@ -897,10 +1019,12 @@ class _AnimatedCheckingTextState extends State<AnimatedCheckingText>
       duration: Duration(milliseconds: 600),
     )..addListener(() {
       if (_controller.status == AnimationStatus.completed) {
-        setState(() {
-          dotCount = (dotCount + 1) % 4;
-        });
-        _controller.forward(from: 0.0);
+        if (mounted) {
+          setState(() {
+            dotCount = (dotCount + 1) % 4;
+          });
+          _controller.forward(from: 0.0);
+        }
       }
     });
     _controller.forward();

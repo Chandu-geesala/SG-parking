@@ -365,9 +365,20 @@ class _SignUpPageState extends State<SignUpPage>
       final user = userCredential.user;
 
       if (user != null && !user.emailVerified) {
-        await user.delete();
-        await FirebaseAuth.instance.signOut();
-        _showMessage("Unverified account removed. You can sign up again with this email.");
+        try {
+          // Re-authenticate before deletion to ensure fresh credentials
+          final credential = EmailAuthProvider.credential(email: email, password: password);
+          await user.reauthenticateWithCredential(credential);
+
+          // Now delete the account
+          await user.delete();
+          await FirebaseAuth.instance.signOut();
+          _showMessage("Unverified account removed. You can sign up again with this email.");
+        } catch (deleteError) {
+          // If deletion still fails, sign out and inform user
+          await FirebaseAuth.instance.signOut();
+          _showMessage("Unable to remove unverified account. Please contact support or try again later.");
+        }
       } else {
         _showMessage('Email is already in use and verified. Please log in.');
       }
@@ -375,10 +386,14 @@ class _SignUpPageState extends State<SignUpPage>
       if (e.code == 'wrong-password') {
         _showMessage('Email already in use. Incorrect password. Please login or reset password.');
       } else {
-        _showMessage('Cannot delete account: ${e.message}');
+        _showMessage('Authentication failed: ${e.message}');
       }
     }
   }
+
+
+
+
 
   Future<void> _resendVerificationEmail() async {
     try {

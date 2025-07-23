@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:park_sg/viewModel/slotBackend.dart';
+// Add these imports at the top of your file
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+
+
+
 
 class DataUploadUI extends StatefulWidget {
   const DataUploadUI({Key? key}) : super(key: key);
@@ -15,7 +21,13 @@ class _DataUploadUIState extends State<DataUploadUI> {
   bool isProcessing = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  bool _showEmptySlots = false;
+  bool _showAllottedSlots = false;
 
+
+
+
+// Replace your existing _pickAndProcessFile method with this updated version:
   void _pickAndProcessFile({bool clearExisting = false}) async {
     setState(() {
       isProcessing = true;
@@ -27,7 +39,7 @@ class _DataUploadUIState extends State<DataUploadUI> {
         allowedExtensions: ['csv', 'xlsx'],
       );
 
-      if (result == null || result.files.single.path == null) {
+      if (result == null) {
         _showSnackBar("No file selected", Colors.orange);
         setState(() {
           isProcessing = false;
@@ -35,8 +47,40 @@ class _DataUploadUIState extends State<DataUploadUI> {
         return;
       }
 
-      final path = result.files.single.path!;
-      final log = await processExcelOrCsvFile(path, clearExisting: clearExisting);
+      final file = result.files.single;
+      String log;
+
+      // Check platform and use appropriate method
+      if (kIsWeb) {
+        // WEB: Use bytes
+        if (file.bytes == null) {
+          _showSnackBar("File bytes not available", Colors.red);
+          setState(() {
+            isProcessing = false;
+          });
+          return;
+        }
+
+        log = await processExcelOrCsvFile(
+          fileBytes: file.bytes,
+          fileName: file.name,
+          clearExisting: clearExisting,
+        );
+      } else {
+        // MOBILE/DESKTOP: Use path
+        if (file.path == null) {
+          _showSnackBar("File path not available", Colors.red);
+          setState(() {
+            isProcessing = false;
+          });
+          return;
+        }
+
+        log = await processExcelOrCsvFile(
+          filePath: file.path,
+          clearExisting: clearExisting,
+        );
+      }
 
       // Parse the log to show appropriate message
       if (log.contains("Upload Complete")) {
@@ -55,6 +99,10 @@ class _DataUploadUIState extends State<DataUploadUI> {
       });
     }
   }
+
+
+
+
 
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -134,7 +182,7 @@ class _DataUploadUIState extends State<DataUploadUI> {
                         )
                             : const Icon(Icons.upload_file, size: 20),
                         label: Text(
-                          isProcessing ? 'Processing...' : 'Upload & Merge',
+                          isProcessing ? 'Processing...' : 'Merge',
                           style: const TextStyle(fontSize: 14),
                         ),
                         style: ElevatedButton.styleFrom(
@@ -340,8 +388,10 @@ class _DataUploadUIState extends State<DataUploadUI> {
     );
   }
 
-  Widget _buildSlotsDataSection() {
 
+
+
+  Widget _buildSlotsDataSection() {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return LayoutBuilder(
@@ -378,19 +428,24 @@ class _DataUploadUIState extends State<DataUploadUI> {
                   ],
                 ),
                 SizedBox(height: isWide ? 20 : 16),
-                SizedBox(
-                  height: isWide ? 600 : 500,
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: _firestore.collection('Slots').snapshots(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(),
-                        );
-                      }
 
-                      if (snapshot.hasError) {
-                        return Center(
+                // StreamBuilder for slot data
+                StreamBuilder<QuerySnapshot>(
+                  stream: _firestore.collection('Slots').snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(40.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(40.0),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -409,13 +464,16 @@ class _DataUploadUIState extends State<DataUploadUI> {
                               ),
                             ],
                           ),
-                        );
-                      }
+                        ),
+                      );
+                    }
 
-                      final slots = snapshot.data?.docs ?? [];
+                    final slots = snapshot.data?.docs ?? [];
 
-                      if (slots.isEmpty) {
-                        return Center(
+                    if (slots.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(40.0),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -442,138 +500,67 @@ class _DataUploadUIState extends State<DataUploadUI> {
                               ),
                             ],
                           ),
-                        );
-                      }
-
-                      // For wide screens, use grid layout
-                      if (isVeryWide) {
-                        return GridView.builder(
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: constraints.maxWidth > 1200 ? 3 : 2,
-                            childAspectRatio: 3.5,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                          ),
-                          itemCount: slots.length,
-                          itemBuilder: (context, index) {
-                            final slot = slots[index];
-                            final data = slot.data() as Map<String, dynamic>;
-                            final slotId = data['slotId'] ?? slot.id;
-
-                            final vehicleType = data['vehicleType'] ?? '';
-                            final slotPriority = data['slotPriority'] ?? '';
-                            final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
-                            final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
-
-                            return Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey[300]!),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: _getVehicleTypeColor(vehicleType),
-                                  child: Icon(
-                                    _getVehicleTypeIcon(vehicleType),
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                ),
-                                title: Text(
-                                  'Slot: $slotId',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 4),
-                                    Wrap(
-                                      spacing: 6,
-                                      runSpacing: 4,
-                                      children: [
-                                        _buildChip(vehicleType, Colors.blue),
-                                        _buildChip(slotPriority, Colors.orange),
-                                        if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
-                                          _buildChip(vehicleCompatibility, Colors.purple),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                                onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
-                              ),
-                            );
-                          },
-                        );
-                      }
-
-                      // For mobile and tablet, use list layout
-                      return ListView.builder(
-                        itemCount: slots.length,
-                        itemBuilder: (context, index) {
-                          final slot = slots[index];
-                          final data = slot.data() as Map<String, dynamic>;
-                          final slotId = data['slotId'] ?? slot.id;
-
-                          final vehicleType = data['vehicleType'] ?? '';
-                          final slotPriority = data['slotPriority'] ?? '';
-                          final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
-                          final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
-
-                          return Container(
-                            margin: EdgeInsets.only(bottom: isWide ? 16 : 12),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey[300]!),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: ListTile(
-                              contentPadding: EdgeInsets.all(isWide ? 20 : 16),
-                              leading: CircleAvatar(
-                                backgroundColor: _getVehicleTypeColor(vehicleType),
-                                radius: isWide ? 24 : 20,
-                                child: Icon(
-                                  _getVehicleTypeIcon(vehicleType),
-                                  color: Colors.white,
-                                  size: isWide ? 24 : 20,
-                                ),
-                              ),
-                              title: Text(
-                                'Slot: $slotId',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: isWide ? 18 : 16,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(height: isWide ? 8 : 4),
-                                  Wrap(
-                                    spacing: isWide ? 8 : 6,
-                                    runSpacing: isWide ? 6 : 4,
-                                    children: [
-                                      _buildChip(vehicleType, Colors.blue),
-                                      _buildChip(slotPriority, Colors.orange),
-                                      if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
-                                        _buildChip(vehicleCompatibility, Colors.purple),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              trailing: Icon(
-                                Icons.arrow_forward_ios,
-                                size: isWide ? 18 : 16,
-                              ),
-                              onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
-                            ),
-                          );
-                        },
+                        ),
                       );
-                    },
-                  ),
+                    }
+
+                    // Categorize slots
+                    final emptySlots = <QueryDocumentSnapshot>[];
+                    final allottedSlots = <QueryDocumentSnapshot>[];
+
+                    for (final slot in slots) {
+                      final data = slot.data() as Map<String, dynamic>;
+                      final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
+
+                      if (allotedTo.isEmpty) {
+                        emptySlots.add(slot);
+                      } else {
+                        allottedSlots.add(slot);
+                      }
+                    }
+
+                    return Column(
+                      children: [
+                        // Empty Slots Section
+                        _buildSlotCategoryCard(
+                          title: 'Empty Slots',
+                          count: emptySlots.length,
+                          color: Colors.green,
+                          icon: Icons.circle_outlined,
+                          isExpanded: _showEmptySlots,
+                          onToggle: () {
+                            setState(() {
+                              _showEmptySlots = !_showEmptySlots;
+                            });
+                          },
+                          slots: emptySlots,
+                          isWide: isWide,
+                          isVeryWide: isVeryWide,
+                          constraints: constraints,
+                        ),
+
+                        SizedBox(height: isWide ? 16 : 12),
+
+                        // Allotted Slots Section
+                        _buildSlotCategoryCard(
+                          title: 'Allotted Slots',
+                          count: allottedSlots.length,
+                          color: Colors.orange,
+                          icon: Icons.person,
+                          isExpanded: _showAllottedSlots,
+                          onToggle: () {
+                            setState(() {
+                              _showAllottedSlots = !_showAllottedSlots;
+                            });
+                          },
+                          slots: allottedSlots,
+                          isWide: isWide,
+                          isVeryWide: isVeryWide,
+                          constraints: constraints,
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -582,6 +569,248 @@ class _DataUploadUIState extends State<DataUploadUI> {
       },
     );
   }
+
+  Widget _buildSlotCategoryCard({
+    required String title,
+    required int count,
+    required Color color,
+    required IconData icon,
+    required bool isExpanded,
+    required VoidCallback onToggle,
+    required List<QueryDocumentSnapshot> slots,
+    required bool isWide,
+    required bool isVeryWide,
+    required BoxConstraints constraints,
+  }) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDarkMode
+            ? Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3)
+            : color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          // Category Header
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onToggle,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: EdgeInsets.all(isWide ? 20 : 16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: color,
+                        size: isWide ? 24 : 20,
+                      ),
+                    ),
+                    SizedBox(width: isWide ? 16 : 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: isWide ? 18 : 16,
+                              color: isDarkMode
+                                  ? Theme.of(context).colorScheme.onSurface
+                                  : Colors.grey[800],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$count slot${count != 1 ? 's' : ''}',
+                            style: TextStyle(
+                              color: color,
+                              fontSize: isWide ? 14 : 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        count.toString(),
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: isWide ? 16 : 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    AnimatedRotation(
+                      turns: isExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        Icons.expand_more,
+                        color: color,
+                        size: isWide ? 24 : 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Expandable Content
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            height: isExpanded ? (slots.isEmpty ? 100 : (isWide ? 400 : 300)) : 0,
+            child: isExpanded
+                ? Container(
+              margin: EdgeInsets.fromLTRB(
+                isWide ? 20 : 16,
+                0,
+                isWide ? 20 : 16,
+                isWide ? 20 : 16,
+              ),
+              decoration: BoxDecoration(
+                color: isDarkMode
+                    ? Theme.of(context).colorScheme.surface
+                    : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                ),
+              ),
+              child: slots.isEmpty
+                  ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text(
+                    'No ${title.toLowerCase()}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              )
+                  : ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _buildSlotsList(slots, isWide, isVeryWide, constraints),
+              ),
+            )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSlotsList(List<QueryDocumentSnapshot> slots, bool isWide, bool isVeryWide, BoxConstraints constraints) {
+    // For wide screens, use grid layout
+    if (isVeryWide) {
+      return GridView.builder(
+        padding: const EdgeInsets.all(12),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: constraints.maxWidth > 1200 ? 3 : 2,
+          childAspectRatio: 3.5,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: slots.length,
+        itemBuilder: (context, index) => _buildSlotItem(slots[index], isWide),
+      );
+    }
+
+    // For mobile and tablet, use list layout
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: slots.length,
+      itemBuilder: (context, index) => Container(
+        margin: EdgeInsets.only(bottom: isWide ? 12 : 8),
+        child: _buildSlotItem(slots[index], isWide),
+      ),
+    );
+  }
+
+  Widget _buildSlotItem(QueryDocumentSnapshot slot, bool isWide) {
+    final data = slot.data() as Map<String, dynamic>;
+    final slotId = data['slotId'] ?? slot.id;
+    final vehicleType = data['vehicleType'] ?? '';
+    final slotPriority = data['slotPriority'] ?? '';
+    final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
+    final vehicleCompatibility = data['VehicleCompatibility'] ?? '';
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        contentPadding: EdgeInsets.all(isWide ? 16 : 12),
+        leading: CircleAvatar(
+          backgroundColor: _getVehicleTypeColor(vehicleType),
+          radius: isWide ? 20 : 16,
+          child: Icon(
+            _getVehicleTypeIcon(vehicleType),
+            color: Colors.white,
+            size: isWide ? 20 : 16,
+          ),
+        ),
+        title: Text(
+          'Slot: $slotId',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: isWide ? 16 : 14,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(height: isWide ? 6 : 4),
+            Wrap(
+              spacing: isWide ? 6 : 4,
+              runSpacing: isWide ? 4 : 2,
+              children: [
+                _buildChip(vehicleType, Colors.blue),
+                _buildChip(slotPriority, Colors.orange),
+                if (vehicleType == 'CAR' && vehicleCompatibility.isNotEmpty)
+                  _buildChip(vehicleCompatibility, Colors.purple),
+              ],
+            ),
+          ],
+        ),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: isWide ? 16 : 14,
+        ),
+        onTap: () => _showSlotDetailsBottomSheet(context, slotId, data, allotedTo),
+      ),
+    );
+  }
+
+
+
+
+
 
 
   void _showSlotDetailsBottomSheet(BuildContext context, String slotId, Map<String, dynamic> data, List<dynamic> allotedTo) {

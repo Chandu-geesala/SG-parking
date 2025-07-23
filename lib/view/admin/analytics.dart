@@ -10,7 +10,7 @@ import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
-
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:park_sg/utils/analytics_helper.dart'; // Your platform-safe function
@@ -48,6 +48,87 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   Map<String, dynamic>? _analyticsData;
   String? _currentQuery;
+
+
+  static Map<String, Map<String, dynamic>> _slotsCache = {};
+  static DateTime? _slotsCacheTime;
+  static const Duration _cacheExpiry = Duration(minutes: 10);
+
+  final Map<String, Map<String, dynamic>> _analyticsCache = {};
+  Timer? _searchDebounce;
+
+  // NEW: Cache management methods
+  bool get _isCacheValid {
+    return _slotsCacheTime != null &&
+        DateTime.now().difference(_slotsCacheTime!).inMinutes < _cacheExpiry.inMinutes;
+  }
+
+  void _clearCaches() {
+    _slotsCache.clear();
+    _slotsCacheTime = null;
+    _analyticsCache.clear();
+  }
+
+  // NEW: Optimized slots cache loader
+  Future<void> _loadSlotsCache() async {
+    if (_isCacheValid && _slotsCache.isNotEmpty) return;
+
+    try {
+      final slotsQuery = await _firestore.collection('Slots').get();
+      _slotsCache.clear();
+
+      for (var doc in slotsQuery.docs) {
+        _slotsCache[doc.id] = {
+          'data': doc.data(),
+          'id': doc.id,
+        };
+      }
+      _slotsCacheTime = DateTime.now();
+    } catch (e) {
+      print('Error loading slots cache: $e');
+      // Continue with empty cache if error occurs
+    }
+  }
+
+  // NEW: Find user's slot from cache
+  Map<String, dynamic>? _findUserSlotFromCache(String email) {
+    for (var slotEntry in _slotsCache.entries) {
+      final slotData = slotEntry.value['data'] as Map<String, dynamic>;
+      final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
+
+      for (var user in allotedTo) {
+        if (user['email'] == email) {
+          return {
+            'slotId': slotEntry.key,
+            'slotData': slotData,
+            'allotedDate': user['alloted_date'],
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  // NEW: Generate date range efficiently
+  List<String> _generateOptimizedDateRange(DateTime start, DateTime end) {
+    final dates = <String>[];
+    final totalDays = end.difference(start).inDays + 1;
+
+    // Limit to reasonable range to prevent excessive queries
+    final maxDays = totalDays > 90 ? 90 : totalDays;
+
+    for (int i = 0; i < maxDays; i++) {
+      final date = start.add(Duration(days: i));
+      if (date.isAfter(end)) break;
+      dates.add(DateFormat('yyyy-MM-dd').format(date));
+    }
+
+    return dates;
+  }
+
+
+
+
 
   @override
   void initState() {
@@ -156,6 +237,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
 
 
+  // CLEAN VERSION: Replace your _getAllUsersAnalytics method with this
   Future<List<Map<String, dynamic>>> _getAllUsersAnalytics() async {
     if (_startDate == null || _endDate == null) return [];
 
@@ -165,20 +247,20 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     });
 
     try {
-      // Get all slots in one query
-      final slotsSnapshot = await _firestore.collection('Slots').get();
+      // Load slots from cache (much faster than direct query)
+      await _loadSlotsCache();
       setState(() => _exportProgress = 0.2);
 
-      // Create user-slot mapping
-      Map<String, Map<String, dynamic>> userSlotMap = {};
-      for (var slotDoc in slotsSnapshot.docs) {
-        final slotData = slotDoc.data();
+      // Create user-slot mapping from cache
+      final userSlotMap = <String, Map<String, dynamic>>{};
+      for (var slotEntry in _slotsCache.entries) {
+        final slotData = slotEntry.value['data'] as Map<String, dynamic>;
         final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
 
         for (var user in allotedTo) {
           final email = user['email'] as String;
           userSlotMap[email] = {
-            'slotId': slotDoc.id,
+            'slotId': slotEntry.key,
             'allotedDate': user['alloted_date'],
             'slotData': slotData,
           };
@@ -188,7 +270,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       setState(() => _exportProgress = 0.4);
 
       // Get all bookings for date range in batch
-      final dates = _generateDateRange(_startDate!, _endDate!);
+      final dates = _generateOptimizedDateRange(_startDate!, _endDate!);
       final userBookings = <String, List<Map<String, dynamic>>>{};
 
       // Process all dates concurrently (limited batches to avoid memory issues)
@@ -261,12 +343,226 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
   }
 
+// OPTIMIZED VERSION: Replace your _getAllSlotsAnalytics method with this
+  Future<List<Map<String, dynamic>>> _getAllSlotsAnalytics() async {
+    if (_startDate == null || _endDate == null) return [];
+
+    setState(() {
+      _isExporting = true;
+      _exportProgress = 0.1;
+    });
+
+    try {
+      // Use cache instead of direct query (much faster)
+      await _loadSlotsCache();
+      setState(() => _exportProgress = 0.2);
+
+      // Get all bookings for date range
+      final dates = _generateOptimizedDateRange(_startDate!, _endDate!);
+      final allBookings = <String, List<Map<String, dynamic>>>{};
+
+      // Process dates in batches
+      for (int i = 0; i < dates.length; i += 5) {
+        final dateBatch = dates.skip(i).take(5).toList();
+
+        final futures = dateBatch.map((dateStr) async {
+          final snapshot = await _firestore
+              .collection('Bookings')
+              .doc(dateStr)
+              .collection('BookedToday')
+              .get();
+
+          return {
+            'date': dateStr,
+            'bookings': snapshot.docs,
+          };
+        });
+
+        final results = await Future.wait(futures);
+
+        for (final result in results) {
+          final dateStr = result['date'] as String;
+          final bookings = result['bookings'] as List<QueryDocumentSnapshot>;
+
+          for (final booking in bookings) {
+            final slotId = booking.id;
+            final data = booking.data() as Map<String, dynamic>;
+
+            allBookings.putIfAbsent(slotId, () => []);
+            allBookings[slotId]!.add({
+              'date': dateStr,
+              'bookedBy': data['bookedBy'],
+              'userName': data['userName'],
+              'vehicleType': data['vehicleType'],
+            });
+          }
+        }
+
+        setState(() => _exportProgress = 0.2 + (0.6 * (i + 5) / dates.length));
+      }
+
+      // Build slot analytics using cached data
+      final slotAnalytics = <Map<String, dynamic>>[];
+      final totalDays = _endDate!.difference(_startDate!).inDays + 1;
+
+      // Iterate through cached slots instead of fresh query
+      for (final slotEntry in _slotsCache.entries) {
+        final slotId = slotEntry.key;
+        final slotData = slotEntry.value['data'] as Map<String, dynamic>;
+        final bookings = allBookings[slotId] ?? [];
+
+        // Count bookings per user
+        final userBookingCount = <String, int>{};
+        for (final booking in bookings) {
+          final bookedBy = booking['bookedBy'] as String;
+          userBookingCount[bookedBy] = (userBookingCount[bookedBy] ?? 0) + 1;
+        }
+
+        final utilizationPercentage = (bookings.length / totalDays * 100).toDouble();
+
+        slotAnalytics.add({
+          'slotId': slotId,
+          'slotData': slotData,
+          'allotedTo': slotData['alloted_to'] ?? [],
+          'totalBookings': bookings.length,
+          'utilizationPercentage': utilizationPercentage,
+          'bookingHistory': bookings,
+          'userBookingCount': userBookingCount,
+        });
+      }
+
+      setState(() => _exportProgress = 0.9);
+      return slotAnalytics;
+
+    } catch (e) {
+      print('Error getting all slots analytics: $e');
+      return [];
+    }
+  }
+
+// BONUS: Add this method for better performance monitoring
+  Future<void> _exportUsersToExcelOptimized() async {
+    try {
+      final hasPermission = await _requestStoragePermission();
+      if (!hasPermission) {
+        _showErrorSnackBar('Storage permission is required to save Excel files');
+        return;
+      }
+
+      setState(() => _exportProgress = 0.05);
+
+      // Check cache and estimate export size
+      await _loadSlotsCache();
+      final estimatedUsers = _slotsCache.values
+          .expand((slot) => (slot['data']['alloted_to'] as List? ?? []))
+          .length;
+
+      // Warn user for large exports
+      if (estimatedUsers > 500) {
+        final shouldContinue = await _showLargeExportWarning(estimatedUsers);
+        if (!shouldContinue) {
+          setState(() {
+            _isExporting = false;
+            _exportProgress = 0.0;
+          });
+          return;
+        }
+      }
+
+      final userData = await _getAllUsersAnalytics();
+
+      if (userData.isEmpty) {
+        _showErrorSnackBar('No user data found for selected date range');
+        return;
+      }
+
+      setState(() => _exportProgress = 0.95);
+
+      // Create Excel file efficiently
+      final excel = Excel.createExcel();
+      final sheet = excel['Users Analytics'];
+
+      // Set headers
+      final headers = [
+        'Email', 'Allocated Slot', 'Alloted Date', 'Total Bookings',
+        'Utilization %', 'Slot Priority', 'Vehicle Type', 'Date Range'
+      ];
+
+      // Add headers with styling
+      for (int i = 0; i < headers.length; i++) {
+        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+        cell.value = headers[i];
+        cell.cellStyle = CellStyle(
+          bold: true,
+          backgroundColorHex: '#4CAF50',
+          fontColorHex: '#FFFFFF',
+        );
+      }
+
+      // Add data rows efficiently
+      for (int i = 0; i < userData.length; i++) {
+        final user = userData[i];
+        final slotData = user['slotData'] as Map<String, dynamic>? ?? {};
+        final row = i + 1;
+
+        // Use array for faster access
+        final rowData = [
+          user['email'],
+          user['allocatedSlot'] ?? 'N/A',
+          user['allotedDate'] ?? 'N/A',
+          user['totalBookings'],
+          '${user['utilizationPercentage'].toStringAsFixed(2)}%',
+          slotData['slotPriority'] ?? 'N/A',
+          slotData['vehicleType'] ?? 'N/A',
+          '${DateFormat('dd-MM-yyyy').format(_startDate!)} to ${DateFormat('dd-MM-yyyy').format(_endDate!)}'
+        ];
+
+        for (int j = 0; j < rowData.length; j++) {
+          sheet.cell(CellIndex.indexByColumnRow(columnIndex: j, rowIndex: row)).value = rowData[j];
+        }
+      }
+
+      final fileName = 'Users_Analytics_${DateFormat('ddMMyyyy').format(_startDate!)}_to_${DateFormat('ddMMyyyy').format(_endDate!)}.xlsx';
+      await _saveAndShareExcel(excel, fileName);
+
+    } catch (e) {
+      _showErrorSnackBar('Error exporting users data: ${e.toString()}');
+    } finally {
+      setState(() {
+        _isExporting = false;
+        _exportProgress = 0.0;
+      });
+    }
+  }
+
+// Helper method for large export warning
+  Future<bool> _showLargeExportWarning(int count) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Large Export Warning'),
+        content: Text('This will export $count users. This may take several minutes and use significant memory. Continue?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')
+          ),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continue')
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+
 
   Future<Map<String, dynamic>> _getUserAnalyticsForRange(
       String email,
       Map<String, dynamic> slotInfo
       ) async {
-    final dates = _generateDateRange(_startDate!, _endDate!);
+    final dates = _generateOptimizedDateRange(_startDate!, _endDate!);
     final bookings = <Map<String, dynamic>>[];
 
     // Process dates in smaller batches
@@ -316,107 +612,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
 
 
-  Future<List<Map<String, dynamic>>> _getAllSlotsAnalytics() async {
-    if (_startDate == null || _endDate == null) return [];
-
-    setState(() {
-      _isExporting = true;
-      _exportProgress = 0.1;
-    });
-
-    try {
-      // Get all slots
-      final slotsSnapshot = await _firestore.collection('Slots').get();
-      setState(() => _exportProgress = 0.2);
-
-      // Get all bookings for date range
-      final dates = _generateDateRange(_startDate!, _endDate!);
-      final allBookings = <String, List<Map<String, dynamic>>>{};
-
-      // Process dates in batches
-      for (int i = 0; i < dates.length; i += 5) {
-        final dateBatch = dates.skip(i).take(5).toList();
-
-        final futures = dateBatch.map((dateStr) async {
-          final snapshot = await _firestore
-              .collection('Bookings')
-              .doc(dateStr)
-              .collection('BookedToday')
-              .get();
-
-          return {
-            'date': dateStr,
-            'bookings': snapshot.docs,
-          };
-        });
-
-        final results = await Future.wait(futures);
-
-        for (final result in results) {
-          final dateStr = result['date'] as String;
-          final bookings = result['bookings'] as List<QueryDocumentSnapshot>;
-
-          for (final booking in bookings) {
-            final slotId = booking.id;
-            final data = booking.data() as Map<String, dynamic>;
-
-            allBookings.putIfAbsent(slotId, () => []);
-            allBookings[slotId]!.add({
-              'date': dateStr,
-              'bookedBy': data['bookedBy'],
-              'userName': data['userName'],
-              'vehicleType': data['vehicleType'],
-            });
-          }
-        }
-
-        setState(() => _exportProgress = 0.2 + (0.6 * (i + 5) / dates.length));
-      }
-
-      // Build slot analytics
-      final slotAnalytics = <Map<String, dynamic>>[];
-      final totalDays = _endDate!.difference(_startDate!).inDays + 1;
-
-      for (final slotDoc in slotsSnapshot.docs) {
-        final slotId = slotDoc.id;
-        final slotData = slotDoc.data();
-        final bookings = allBookings[slotId] ?? [];
-
-        // Count bookings per user
-        final userBookingCount = <String, int>{};
-        for (final booking in bookings) {
-          final bookedBy = booking['bookedBy'] as String;
-          userBookingCount[bookedBy] = (userBookingCount[bookedBy] ?? 0) + 1;
-        }
-
-        final utilizationPercentage = (bookings.length / totalDays * 100).toDouble();
-
-        slotAnalytics.add({
-          'slotId': slotId,
-          'slotData': slotData,
-          'allotedTo': slotData['alloted_to'] ?? [],
-          'totalBookings': bookings.length,
-          'utilizationPercentage': utilizationPercentage,
-          'bookingHistory': bookings,
-          'userBookingCount': userBookingCount,
-        });
-      }
-
-      setState(() => _exportProgress = 0.9);
-      return slotAnalytics;
-
-    } catch (e) {
-      print('Error getting all slots analytics: $e');
-      return [];
-    }
-  }
 
 
   Future<Map<String, dynamic>> _getSlotAnalyticsForRange(
       String slotId,
       Map<String, dynamic> slotData
       ) async {
-    final dates = _generateDateRange(_startDate!, _endDate!);
+    final dates = _generateOptimizedDateRange(_startDate!, _endDate!);
     final bookings = <Map<String, dynamic>>[];
     final userBookingCount = <String, int>{};
 
@@ -470,13 +672,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
 
 
-  List<String> _generateDateRange(DateTime start, DateTime end) {
-    final dates = <String>[];
-    for (var date = start; date.isBefore(end.add(const Duration(days: 1))); date = date.add(const Duration(days: 1))) {
-      dates.add(DateFormat('yyyy-MM-dd').format(date));
-    }
-    return dates;
-  }
+
 
 
   Future<void> _saveAndShareExcel(Excel excel, String fileName) async {
@@ -940,139 +1136,221 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
   }
 
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (query.trim().isNotEmpty) {
+        _performSearch();
+      }
+    });
+  }
+
+
+
   Future<Map<String, dynamic>> _getUserAnalytics(String email) async {
-    final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month, 1);
-    final nextMonth = DateTime(now.year, now.month + 1, 1);
+    // Use date range from UI instead of hardcoded current month
+    final startDate = _startDate ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
+    final endDate = _endDate ?? DateTime(DateTime.now().year, DateTime.now().month + 1, 0);
 
-    // Get user's slot allocation from Slots collection
-    final slotsQuery = await _firestore.collection('Slots').get();
-    String? allocatedSlot;
-    DateTime? allotedDate;
+    // Create cache key
+    final cacheKey = '${email}_${DateFormat('yyyy-MM-dd').format(startDate)}_${DateFormat('yyyy-MM-dd').format(endDate)}';
 
-    for (var doc in slotsQuery.docs) {
-      final data = doc.data();
-      final allotedTo = data['alloted_to'] as List<dynamic>?;
+    // Check cache first
+    if (_analyticsCache.containsKey(cacheKey)) {
+      return _analyticsCache[cacheKey]!;
+    }
 
-      if (allotedTo != null) {
-        for (var user in allotedTo) {
-          if (user['email'] == email) {
-            allocatedSlot = doc.id;
-            allotedDate = DateTime.tryParse(user['alloted_date'] ?? '');
-            break;
-          }
+    try {
+      // Load slots cache if needed
+      await _loadSlotsCache();
+
+      // Find user's slot from cache (MUCH faster than querying all slots)
+      final userSlotInfo = _findUserSlotFromCache(email);
+
+      String? allocatedSlot = userSlotInfo?['slotId'];
+      DateTime? allotedDate;
+      if (userSlotInfo?['allotedDate'] != null) {
+        allotedDate = DateTime.tryParse(userSlotInfo!['allotedDate']);
+      }
+
+      // Generate date range efficiently
+      final dates = _generateOptimizedDateRange(startDate, endDate);
+
+      // OPTIMIZED: Batch all booking queries concurrently
+      final bookingFutures = dates.map((dateStr) =>
+          _firestore
+              .collection('Bookings')
+              .doc(dateStr)
+              .collection('BookedToday')
+              .where('bookedBy', isEqualTo: email)
+              .limit(1) // Only need to know if booking exists
+              .get()
+              .then((snapshot) => {
+            'date': dateStr,
+            'hasBooking': snapshot.docs.isNotEmpty,
+            'bookingData': snapshot.docs.isNotEmpty ? {
+              'slotId': snapshot.docs.first.id,
+              'data': snapshot.docs.first.data(),
+            } : null,
+          })
+      );
+
+      // Execute all queries concurrently (MAJOR performance improvement)
+      final bookingResults = await Future.wait(bookingFutures);
+
+      // Process results
+      final bookings = <Map<String, dynamic>>[];
+      int totalBookings = 0;
+
+      for (final result in bookingResults) {
+        if (result['hasBooking'] == true) {
+          final bookingData = result['bookingData'] as Map<String, dynamic>;
+          bookings.add({
+            'date': result['date'],
+            'slotId': bookingData['slotId'],
+            'bookingData': bookingData['data'],
+          });
+          totalBookings++;
         }
       }
-      if (allocatedSlot != null) break;
+
+      // Calculate utilization percentage
+      final totalDays = dates.length;
+      final utilizationPercentage = totalDays > 0 ? (totalBookings / totalDays * 100).toDouble() : 0.0;
+
+      final result = {
+        'type': 'user',
+        'email': email,
+        'allocatedSlot': allocatedSlot,
+        'allotedDate': allotedDate,
+        'totalBookings': totalBookings,
+        'utilizationPercentage': utilizationPercentage,
+        'bookingHistory': bookings,
+        'dateRange': '${DateFormat('MMMM yyyy').format(startDate)} - ${DateFormat('MMMM yyyy').format(endDate)}',
+        'totalDays': totalDays,
+      };
+
+      // Cache the result
+      _analyticsCache[cacheKey] = result;
+
+      return result;
+
+    } catch (e) {
+      print('Error in _getUserAnalytics: $e');
+      throw Exception('Failed to get user analytics: $e');
     }
-
-    // Get booking history for current month
-    List<Map<String, dynamic>> bookings = [];
-    int totalBookings = 0;
-
-    for (int i = 0; i < 31; i++) {
-      final date = currentMonth.add(Duration(days: i));
-      if (date.isAfter(nextMonth)) break;
-
-      final dateStr = DateFormat('yyyy-MM-dd').format(date);
-      final bookingQuery = await _firestore
-          .collection('Bookings')
-          .doc(dateStr)
-          .collection('BookedToday')
-          .where('bookedBy', isEqualTo: email)
-          .get();
-
-      if (bookingQuery.docs.isNotEmpty) {
-        final booking = bookingQuery.docs.first;
-        bookings.add({
-          'date': dateStr,
-          'slotId': booking.id,
-          'bookingData': booking.data(),
-        });
-        totalBookings++;
-      }
-    }
-
-    // Calculate utilization percentage
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    final workingDays = daysInMonth; // Assuming all days are working days
-    final utilizationPercentage = (totalBookings / workingDays * 100).toDouble();
-
-    return {
-      'type': 'user',
-      'email': email,
-      'allocatedSlot': allocatedSlot,
-      'allotedDate': allotedDate,
-      'totalBookings': totalBookings,
-      'utilizationPercentage': utilizationPercentage,
-      'bookingHistory': bookings,
-      'currentMonth': DateFormat('MMMM yyyy').format(currentMonth),
-    };
   }
+
+
+
 
   Future<Map<String, dynamic>> _getSlotAnalytics(String slotId) async {
-    final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month, 1);
-    final nextMonth = DateTime(now.year, now.month + 1, 1);
+    // Use date range from UI instead of hardcoded current month
+    final startDate = _startDate ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
+    final endDate = _endDate ?? DateTime(DateTime.now().year, DateTime.now().month + 1, 0);
 
-    // Get slot details from Slots collection
-    final slotDoc = await _firestore.collection('Slots').doc(slotId).get();
-    if (!slotDoc.exists) {
-      throw Exception('Slot not found');
+    // Create cache key
+    final cacheKey = '${slotId}_${DateFormat('yyyy-MM-dd').format(startDate)}_${DateFormat('yyyy-MM-dd').format(endDate)}';
+
+    // Check cache first
+    if (_analyticsCache.containsKey(cacheKey)) {
+      return _analyticsCache[cacheKey]!;
     }
 
-    final slotData = slotDoc.data()!;
-    final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
+    try {
+      // Get slot details from cache or fetch if not cached
+      Map<String, dynamic>? slotData;
 
-    // Get booking history for current month
-    List<Map<String, dynamic>> bookings = [];
-    Map<String, int> userBookingCount = {};
-    int totalBookings = 0;
-
-    for (int i = 0; i < 31; i++) {
-      final date = currentMonth.add(Duration(days: i));
-      if (date.isAfter(nextMonth)) break;
-
-      final dateStr = DateFormat('yyyy-MM-dd').format(date);
-      final bookingDoc = await _firestore
-          .collection('Bookings')
-          .doc(dateStr)
-          .collection('BookedToday')
-          .doc(slotId)
-          .get();
-
-      if (bookingDoc.exists) {
-        final booking = bookingDoc.data()!;
-        final bookedBy = booking['bookedBy'] as String;
-
-        bookings.add({
-          'date': dateStr,
-          'bookedBy': bookedBy,
-          'userName': booking['userName'],
-          'vehicleType': booking['vehicleType'],
-        });
-
-        userBookingCount[bookedBy] = (userBookingCount[bookedBy] ?? 0) + 1;
-        totalBookings++;
+      if (_slotsCache.containsKey(slotId)) {
+        slotData = _slotsCache[slotId]!['data'] as Map<String, dynamic>;
+      } else {
+        // Fallback to direct query if not in cache
+        final slotDoc = await _firestore.collection('Slots').doc(slotId).get();
+        if (!slotDoc.exists) {
+          throw Exception('Slot not found');
+        }
+        slotData = slotDoc.data()!;
       }
+
+      final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
+
+      // Generate date range efficiently
+      final dates = _generateOptimizedDateRange(startDate, endDate);
+
+      // OPTIMIZED: Batch all booking queries concurrently
+      final bookingFutures = dates.map((dateStr) =>
+          _firestore
+              .collection('Bookings')
+              .doc(dateStr)
+              .collection('BookedToday')
+              .doc(slotId)
+              .get()
+              .then((snapshot) => {
+            'date': dateStr,
+            'exists': snapshot.exists,
+            'data': snapshot.exists ? snapshot.data() : null,
+          })
+      );
+
+      // Execute all queries concurrently (MAJOR performance improvement)
+      final bookingResults = await Future.wait(bookingFutures);
+
+      // Process results
+      final bookings = <Map<String, dynamic>>[];
+      final userBookingCount = <String, int>{};
+      int totalBookings = 0;
+
+      for (final result in bookingResults) {
+        if (result['exists'] == true) {
+          final booking = result['data'] as Map<String, dynamic>;
+          final bookedBy = booking['bookedBy'] as String;
+
+          bookings.add({
+            'date': result['date'],
+            'bookedBy': bookedBy,
+            'userName': booking['userName'] ?? 'Unknown',
+            'vehicleType': booking['vehicleType'] ?? 'Unknown',
+          });
+
+          userBookingCount[bookedBy] = (userBookingCount[bookedBy] ?? 0) + 1;
+          totalBookings++;
+        }
+      }
+
+      // Calculate utilization percentage
+      final totalDays = dates.length;
+      final utilizationPercentage = totalDays > 0 ? (totalBookings / totalDays * 100).toDouble() : 0.0;
+
+      final result = {
+        'type': 'slot',
+        'slotId': slotId,
+        'slotData': slotData,
+        'allotedTo': allotedTo,
+        'totalBookings': totalBookings,
+        'utilizationPercentage': utilizationPercentage,
+        'bookingHistory': bookings,
+        'userBookingCount': userBookingCount,
+        'dateRange': '${DateFormat('MMMM yyyy').format(startDate)} - ${DateFormat('MMMM yyyy').format(endDate)}',
+        'totalDays': totalDays,
+      };
+
+      // Cache the result
+      _analyticsCache[cacheKey] = result;
+
+      return result;
+
+    } catch (e) {
+      print('Error in _getSlotAnalytics: $e');
+      throw Exception('Failed to get slot analytics: $e');
     }
-
-    // Calculate utilization percentage
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    final utilizationPercentage = (totalBookings / daysInMonth * 100).toDouble();
-
-    return {
-      'type': 'slot',
-      'slotId': slotId,
-      'slotData': slotData,
-      'allotedTo': allotedTo,
-      'totalBookings': totalBookings,
-      'utilizationPercentage': utilizationPercentage,
-      'bookingHistory': bookings,
-      'userBookingCount': userBookingCount,
-      'currentMonth': DateFormat('MMMM yyyy').format(currentMonth),
-    };
   }
+
+
+
+
+
+
+
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1556,6 +1834,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                             vertical: 12,
                           ),
                         ),
+                        onChanged: _onSearchChanged,
                         onSubmitted: (_) => _performSearch(),
                       ),
                     ),
@@ -1627,6 +1906,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                             ),
                           ),
                           onSubmitted: (_) => _performSearch(),
+                          onChanged: _onSearchChanged,
                         ),
                       ),
                     ),
@@ -1695,6 +1975,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         ],
       ),
     );
+  }
+
+
+  // ADD this method to your class
+  Future<void> refreshData() async {
+    _clearCaches();
+    if (_currentQuery != null) {
+      await _performSearch();
+    }
   }
 
   Widget _buildTypeSelector(String type, String label, IconData icon, {bool isDesktop = false}) {
@@ -2072,7 +2361,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Utilization - ${data['currentMonth']}',
+                    'Utilization - ${data['dateRange']}',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -2432,6 +2721,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchDebounce?.cancel();
+    _clearCaches(); // Clear caches when widget is disposed
     super.dispose();
   }
+
 }
