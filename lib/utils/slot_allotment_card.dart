@@ -164,91 +164,91 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
     }
   }
 
-  // ✅ OPTIMISTIC SLOT BOOKING - Immediate UI feedback
-  Future<void> _allotSlotOptimistic() async {
-    if (_selectedSlotId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please select a slot first'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final userEmail = widget.requestData['email'] ?? '';
-    final userName = getDisplayNameFromEmail(userEmail);
-    final vehicleType = widget.requestData['vehicleType'] ?? '';
-    final selectedSlotId = _selectedSlotId!;
-
-    // 🚀 OPTIMISTIC UPDATE - Immediate UI response
-    final optimisticBooking = {
-      'slotId': selectedSlotId,
-      'bookingData': {
-        'bookedBy': userEmail,
-        'userName': userName,
-        'vehicleType': vehicleType,
-        'bookedAt': Timestamp.now(),
-      },
-      'exists': true,
-    };
-
-    setState(() {
-      _userTodayBooking = optimisticBooking;
-      _selectedSlotId = null;
-      // Remove the slot from available list immediately
-      _availableSlots.removeWhere((slot) => slot['slotId'] == selectedSlotId);
-    });
-
-    try {
-      final bookingResult = await _bookingBackend.bookSlotForToday(
-        slotId: selectedSlotId,
-        vehicleType: vehicleType,
-        userEmail: userEmail,
-        userName: userName,
-      );
-
-      if (bookingResult['success'] == true) {
-        // Success - call refresh callback
-        widget.onSlotsRefresh();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Slot $selectedSlotId booked successfully!'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        // 🔄 REVERT OPTIMISTIC UPDATE on failure
-        await _revertOptimisticUpdate();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(bookingResult['message'] ?? 'Booking failed'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      // 🔄 REVERT OPTIMISTIC UPDATE on error
-      await _revertOptimisticUpdate();
-
-      print('Error allotting slot: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to book slot: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
+  // // ✅ OPTIMISTIC SLOT BOOKING - Immediate UI feedback
+  // Future<void> _allotSlotOptimistic() async {
+  //   if (_selectedSlotId == null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('Please select a slot first'),
+  //         backgroundColor: Colors.orange,
+  //       ),
+  //     );
+  //     return;
+  //   }
+  //
+  //   final userEmail = widget.requestData['email'] ?? '';
+  //   final userName = getDisplayNameFromEmail(userEmail);
+  //   final vehicleType = widget.requestData['vehicleType'] ?? '';
+  //   final selectedSlotId = _selectedSlotId!;
+  //
+  //   // 🚀 OPTIMISTIC UPDATE - Immediate UI response
+  //   final optimisticBooking = {
+  //     'slotId': selectedSlotId,
+  //     'bookingData': {
+  //       'bookedBy': userEmail,
+  //       'userName': userName,
+  //       'vehicleType': vehicleType,
+  //       'bookedAt': Timestamp.now(),
+  //     },
+  //     'exists': true,
+  //   };
+  //
+  //   setState(() {
+  //     _userTodayBooking = optimisticBooking;
+  //     _selectedSlotId = null;
+  //     // Remove the slot from available list immediately
+  //     _availableSlots.removeWhere((slot) => slot['slotId'] == selectedSlotId);
+  //   });
+  //
+  //   try {
+  //     final bookingResult = await _bookingBackend.bookSlotForToday(
+  //       slotId: selectedSlotId,
+  //       vehicleType: vehicleType,
+  //       userEmail: userEmail,
+  //       userName: userName,
+  //     );
+  //
+  //     if (bookingResult['success'] == true) {
+  //       // Success - call refresh callback
+  //       widget.onSlotsRefresh();
+  //
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Text('Slot $selectedSlotId booked successfully!'),
+  //             backgroundColor: Colors.green,
+  //             duration: Duration(seconds: 2),
+  //           ),
+  //         );
+  //       }
+  //     } else {
+  //       // 🔄 REVERT OPTIMISTIC UPDATE on failure
+  //       await _revertOptimisticUpdate();
+  //
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Text(bookingResult['message'] ?? 'Booking failed'),
+  //             backgroundColor: Colors.orange,
+  //           ),
+  //         );
+  //       }
+  //     }
+  //   } catch (e) {
+  //     // 🔄 REVERT OPTIMISTIC UPDATE on error
+  //     await _revertOptimisticUpdate();
+  //
+  //     print('Error allotting slot: $e');
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text('Failed to book slot: ${e.toString()}'),
+  //           backgroundColor: Colors.red,
+  //         ),
+  //       );
+  //     }
+  //   }
+  // }
 
   // ✅ REVERT OPTIMISTIC UPDATES
   Future<void> _revertOptimisticUpdate() async {
@@ -481,7 +481,7 @@ class _SlotAllotmentWidgetState extends State<SlotAllotmentWidget> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: isSlotSelected ? _allotSlotOptimistic : null,
+                  onPressed:  null,
                   icon: Icon(Icons.schedule, size: widget.isDesktop ? 16 : 20),
                   label: Text(
                     'Book Slot',

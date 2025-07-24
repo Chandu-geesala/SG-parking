@@ -1593,104 +1593,104 @@ class _RequestsPageState extends State<RequestsPage> {
 
 
 
-  Future<void> _allotSlot(String requestId) async {
-    final selectedSlotId = _selectedSlots[requestId];
-
-    if (selectedSlotId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please select a slot first'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    Map<String, dynamic>? request;
-    try {
-      request = _requests.firstWhere((r) => r['id'] == requestId);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Request not found'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final requestData = request['data'] as Map<String, dynamic>;
-    final userEmail = requestData['email'] ?? '';
-    final userName = getDisplayNameFromEmail(userEmail);
-    final vehicleType = requestData['vehicleType'] ?? '';
-
-    // Clear the selected slot immediately to prevent dropdown errors
-    setState(() {
-      _selectedSlots.remove(requestId);
-    });
-
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(child: CircularProgressIndicator()),
-      );
-
-      final bookingResult = await _bookingBackend.bookSlotForToday(
-        slotId: selectedSlotId,
-        vehicleType: vehicleType,
-        userEmail: userEmail,
-        userName: userName,
-      );
-
-      Navigator.of(context).pop(); // Close loading
-
-      if (bookingResult['success'] == true) {
-        // Update status with allotted slot ID
-        await _updateRequestStatus(requestId, 'allotted-$selectedSlotId');
-
-        // Refresh both slots and requests
-        await Future.wait([
-          _loadAvailableSlots(),
-          _loadRequests(),
-        ]);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Slot $selectedSlotId allotted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        // If booking failed, we can restore the selection
-        setState(() {
-          _selectedSlots[requestId] = selectedSlotId;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(bookingResult['message'] ?? 'Booking failed'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      Navigator.of(context).pop();
-
-      // If there's an error, restore the selection
-      setState(() {
-        _selectedSlots[requestId] = selectedSlotId;
-      });
-
-      print('Error allotting slot: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to allot slot: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
+  // Future<void> _allotSlot(String requestId) async {
+  //   final selectedSlotId = _selectedSlots[requestId];
+  //
+  //   if (selectedSlotId == null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('Please select a slot first'),
+  //         backgroundColor: Colors.orange,
+  //       ),
+  //     );
+  //     return;
+  //   }
+  //
+  //   Map<String, dynamic>? request;
+  //   try {
+  //     request = _requests.firstWhere((r) => r['id'] == requestId);
+  //   } catch (e) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('Request not found'),
+  //         backgroundColor: Colors.red,
+  //       ),
+  //     );
+  //     return;
+  //   }
+  //
+  //   final requestData = request['data'] as Map<String, dynamic>;
+  //   final userEmail = requestData['email'] ?? '';
+  //   final userName = getDisplayNameFromEmail(userEmail);
+  //   final vehicleType = requestData['vehicleType'] ?? '';
+  //
+  //   // Clear the selected slot immediately to prevent dropdown errors
+  //   setState(() {
+  //     _selectedSlots.remove(requestId);
+  //   });
+  //
+  //   try {
+  //     showDialog(
+  //       context: context,
+  //       barrierDismissible: false,
+  //       builder: (context) => Center(child: CircularProgressIndicator()),
+  //     );
+  //
+  //     final bookingResult = await _bookingBackend.bookSlotForToday(
+  //       slotId: selectedSlotId,
+  //       vehicleType: vehicleType,
+  //       userEmail: userEmail,
+  //       userName: userName,
+  //     );
+  //
+  //     Navigator.of(context).pop(); // Close loading
+  //
+  //     if (bookingResult['success'] == true) {
+  //       // Update status with allotted slot ID
+  //       await _updateRequestStatus(requestId, 'allotted-$selectedSlotId');
+  //
+  //       // Refresh both slots and requests
+  //       await Future.wait([
+  //         _loadAvailableSlots(),
+  //         _loadRequests(),
+  //       ]);
+  //
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text('Slot $selectedSlotId allotted successfully!'),
+  //           backgroundColor: Colors.green,
+  //         ),
+  //       );
+  //     } else {
+  //       // If booking failed, we can restore the selection
+  //       setState(() {
+  //         _selectedSlots[requestId] = selectedSlotId;
+  //       });
+  //
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text(bookingResult['message'] ?? 'Booking failed'),
+  //           backgroundColor: Colors.orange,
+  //         ),
+  //       );
+  //     }
+  //   } catch (e) {
+  //     Navigator.of(context).pop();
+  //
+  //     // If there's an error, restore the selection
+  //     setState(() {
+  //       _selectedSlots[requestId] = selectedSlotId;
+  //     });
+  //
+  //     print('Error allotting slot: $e');
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('Failed to allot slot: ${e.toString()}'),
+  //         backgroundColor: Colors.red,
+  //       ),
+  //     );
+  //   }
+  // }
 
 
 
@@ -1961,7 +1961,7 @@ class _RequestsPageState extends State<RequestsPage> {
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: isSlotSelected && !_isLoadingSlots ? () => _allotSlot(requestId) : null,
+                  onPressed: null,
                   icon: const Icon(Icons.schedule, size: 16),
                   label: const Text(
                     'Allot Slot',
@@ -2122,7 +2122,7 @@ class _RequestsPageState extends State<RequestsPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: isSlotSelected && !_isLoadingSlots ? () => _allotSlot(requestId) : null,
+              onPressed: null,
               icon: const Icon(Icons.schedule),
               label: const Text('Allot Slot'),
               style: ElevatedButton.styleFrom(
