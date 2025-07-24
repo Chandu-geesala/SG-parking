@@ -2,7 +2,7 @@ name: Deploy Flutter Web to Firebase
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   build-and-deploy:
