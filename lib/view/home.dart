@@ -422,9 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
               SizedBox(
                 width: isLargeScreen ? 300 : double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () async {
-                    await _handleSlotRequest();
-                  },
+                  onPressed: null,
                   icon: const Icon(Icons.contact_support_rounded),
                   label: const Text("Contact Admin"),
                   style: ElevatedButton.styleFrom(
@@ -469,18 +467,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _handleSlotRequest() async {
-    // Call the requestNewSlot method from your backend
-    final result = await _backend.requestNewSlot();
 
-    if (result['success']) {
-      _backend.showSnackBar(context, result['message'], isError: false);
-      // Refresh the UI to show the new request status
-      setState(() {});
-    } else {
-      _backend.showSnackBar(context, result['message'], isError: true);
-    }
-  }
 
 
 }

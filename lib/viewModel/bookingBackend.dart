@@ -324,7 +324,6 @@ class BookingBackend {
   }
 
 
-// ✅ OPTIMIZED: Single method to get user slot + availability declarations
   Future<Map<String, dynamic>> getUserSlotAndAvailabilityData(String userEmail) async {
     try {
       // Get user's assigned slot (reuse existing cached method)
@@ -372,8 +371,14 @@ class BookingBackend {
 
         if (doc.exists) {
           final data = doc.data() as Map<String, dynamic>;
-          if (data['declaredBy'] == userEmail) {
-            declarations[date] = data['reason'] as String;
+          final declarationsArray = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+          // Find this user's declaration
+          for (var declaration in declarationsArray) {
+            if (declaration['declaredBy'] == userEmail) {
+              declarations[date] = declaration['reason'] as String;
+              break;
+            }
           }
         }
       }
@@ -398,8 +403,388 @@ class BookingBackend {
 
 
 
+  // ✅ MODIFIED: Add slotUsers count to updateUserAvailabilityDeclaration
+  Future<Map<String, dynamic>> updateUserAvailabilityDeclaration({
+    required DateTime date,
+    required String userEmail,
+    String? reason, // null means remove, non-null means save/update
+  }) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
 
-  // ✅ OPTIMIZED: Batch save multiple declarations at once
+      // Get user's assigned slot (uses cache)
+      final userSlot = await _getUserAssignedSlot(userEmail);
+      if (userSlot == null) {
+        return {'success': false, 'message': 'User has no assigned slot'};
+      }
+
+      final slotId = userSlot['slotId'] as String;
+      // Get vehicle type from cached slot data
+      final vehicleType = userSlot['slotData']?['vehicleType'] as String? ?? 'BIKE';
+      // ✅ NEW: Get slot users count from cached slot data
+      final allotedTo = userSlot['slotData']?['alloted_to'] as List<dynamic>? ?? [];
+      final slotUsers = allotedTo.length;
+
+      await _firestore.runTransaction((transaction) async {
+        final availabilityRef = _firestore
+            .collection('Bookings')
+            .doc(dateStr)
+            .collection('AvailableToday')
+            .doc(slotId);
+
+        final existingDoc = await transaction.get(availabilityRef);
+
+        if (reason == null) {
+          // Remove declaration
+          if (existingDoc.exists) {
+            final data = existingDoc.data() as Map<String, dynamic>;
+            final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+            // Remove this user's declaration
+            declarations.removeWhere((declaration) => declaration['declaredBy'] == userEmail);
+
+            if (declarations.isEmpty) {
+              // Delete the document if no declarations left
+              transaction.delete(availabilityRef);
+            } else {
+              // Update with remaining declarations + update timestamp at document level
+              transaction.update(availabilityRef, {
+                'declarations': declarations,
+                'lastUpdated': FieldValue.serverTimestamp(),
+              });
+            }
+          }
+        } else {
+          // Save/update declaration
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final newDeclaration = {
+            'declaredBy': userEmail,
+            'reason': reason,
+            'declaredAt': now,
+          };
+
+          if (existingDoc.exists) {
+            // Document exists, update the declarations array
+            final data = existingDoc.data() as Map<String, dynamic>;
+            final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+            // Remove existing declaration from this user if any
+            declarations.removeWhere((declaration) => declaration['declaredBy'] == userEmail);
+
+            // Add new declaration
+            declarations.add(newDeclaration);
+
+            transaction.update(availabilityRef, {
+              'declarations': declarations,
+              'lastUpdated': FieldValue.serverTimestamp(),
+            });
+          } else {
+            // Document doesn't exist, create new one
+            transaction.set(availabilityRef, {
+              'date': dateStr,
+              'slotId': slotId,
+              'vehicleType': vehicleType,
+              'slotUsers': slotUsers, // ✅ NEW: Add slot users count
+              'declarations': [newDeclaration],
+              'createdAt': FieldValue.serverTimestamp(),
+              'lastUpdated': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+      });
+
+      return {
+        'success': true,
+        'message': reason == null ? 'Declaration removed' : 'Declaration saved',
+      };
+
+    } catch (e) {
+      return {
+        'success': false,
+        'message': e.toString().replaceAll('Exception: ', ''),
+      };
+    }
+  }
+
+
+  // ✅ NEW: Get available slots based on declarations for a specific date
+  Future<List<Map<String, dynamic>>> getAvailableSlotsFromDeclarations({
+    required DateTime date,
+    String? vehicleTypeFilter, // Optional: filter by vehicle type ('CAR', 'BIKE')
+  }) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
+
+      // Single query to get all availability declarations for the date
+      final availabilityQuery = await _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('AvailableToday')
+          .get();
+
+      List<Map<String, dynamic>> availableSlots = [];
+
+      for (var doc in availabilityQuery.docs) {
+        final data = doc.data();
+        final slotId = data['slotId'] as String;
+        final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
+        final slotUsers = data['slotUsers'] as int? ?? 0;
+        final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+        // Check if all users declared (declarations count == slotUsers count)
+        final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
+
+        if (isFullyDeclared) {
+          // Apply vehicle type filter if specified
+          if (vehicleTypeFilter == null || vehicleType.toUpperCase() == vehicleTypeFilter.toUpperCase()) {
+            availableSlots.add({
+              'slotId': slotId,
+              'vehicleType': vehicleType,
+              'slotUsers': slotUsers,
+              'declarationsCount': declarations.length,
+              'declarations': declarations,
+              'date': dateStr,
+              'isAvailable': true,
+            });
+          }
+        }
+      }
+
+      // Sort by slot ID for consistent ordering
+      availableSlots.sort((a, b) => a['slotId'].toString().compareTo(b['slotId'].toString()));
+
+      return availableSlots;
+    } catch (e) {
+      print('Error getting available slots from declarations: $e');
+      return [];
+    }
+  }
+
+// ✅ NEW: Get available slots for multiple dates (for dropdown scenarios)
+  Future<Map<DateTime, List<Map<String, dynamic>>>> getAvailableSlotsForDates({
+    required List<DateTime> dates,
+    String? vehicleTypeFilter, // Optional: filter by vehicle type
+  }) async {
+    try {
+      Map<DateTime, List<Map<String, dynamic>>> results = {};
+
+      // Create futures for parallel execution
+      List<Future<QuerySnapshot>> futures = [];
+      List<DateTime> datesList = [];
+
+      for (DateTime date in dates) {
+        final dateStr = _formatDateForDocId(date);
+        datesList.add(date);
+        futures.add(
+            _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .get()
+        );
+      }
+
+      // Execute all reads in parallel
+      final queryResults = await Future.wait(futures);
+
+      for (int i = 0; i < queryResults.length; i++) {
+        final querySnapshot = queryResults[i];
+        final date = datesList[i];
+
+        List<Map<String, dynamic>> availableSlots = [];
+
+        for (var doc in querySnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final slotId = data['slotId'] as String;
+          final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
+          final slotUsers = data['slotUsers'] as int? ?? 0;
+          final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+          // Check if all users declared (declarations count == slotUsers count)
+          final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
+
+          if (isFullyDeclared) {
+            // Apply vehicle type filter if specified
+            if (vehicleTypeFilter == null || vehicleType.toUpperCase() == vehicleTypeFilter.toUpperCase()) {
+              availableSlots.add({
+                'slotId': slotId,
+                'vehicleType': vehicleType,
+                'slotUsers': slotUsers,
+                'declarationsCount': declarations.length,
+                'declarations': declarations,
+                'date': _formatDateForDocId(date),
+                'isAvailable': true,
+              });
+            }
+          }
+        }
+
+        // Sort by slot ID for consistent ordering
+        availableSlots.sort((a, b) => a['slotId'].toString().compareTo(b['slotId'].toString()));
+        results[date] = availableSlots;
+      }
+
+      return results;
+    } catch (e) {
+      print('Error getting available slots for dates: $e');
+      return {};
+    }
+  }
+
+// ✅ NEW: Get available slots summary for a date range (efficient overview)
+  Future<Map<String, dynamic>> getAvailableSlotsSummary({
+    required List<DateTime> dates,
+    String? vehicleTypeFilter,
+  }) async {
+    try {
+      final availableSlotsData = await getAvailableSlotsForDates(
+        dates: dates,
+        vehicleTypeFilter: vehicleTypeFilter,
+      );
+
+      // Count total available slots per date
+      Map<DateTime, int> availableCountPerDate = {};
+      Map<String, int> slotAvailabilityCount = {}; // How many days each slot is available
+      Set<String> allAvailableSlots = {};
+
+      for (final entry in availableSlotsData.entries) {
+        final date = entry.key;
+        final slots = entry.value;
+
+        availableCountPerDate[date] = slots.length;
+
+        for (final slot in slots) {
+          final slotId = slot['slotId'] as String;
+          allAvailableSlots.add(slotId);
+          slotAvailabilityCount[slotId] = (slotAvailabilityCount[slotId] ?? 0) + 1;
+        }
+      }
+
+      // Find slots available on all requested dates
+      final fullyAvailableSlots = slotAvailabilityCount.entries
+          .where((entry) => entry.value == dates.length)
+          .map((entry) => entry.key)
+          .toList();
+
+      return {
+        'availableSlotsPerDate': availableSlotsData,
+        'availableCountPerDate': availableCountPerDate,
+        'totalUniqueSlots': allAvailableSlots.length,
+        'fullyAvailableSlots': fullyAvailableSlots, // Available on all dates
+        'slotAvailabilityCount': slotAvailabilityCount,
+        'dateRange': {
+          'start': dates.isNotEmpty ? _formatDateForDocId(dates.first) : null,
+          'end': dates.isNotEmpty ? _formatDateForDocId(dates.last) : null,
+          'totalDays': dates.length,
+        },
+      };
+    } catch (e) {
+      print('Error getting available slots summary: $e');
+      return {};
+    }
+  }
+
+// ✅ NEW: Check if a specific slot is available on a date based on declarations
+  Future<Map<String, dynamic>> checkSlotAvailabilityFromDeclarations({
+    required String slotId,
+    required DateTime date,
+  }) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
+
+      final doc = await _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('AvailableToday')
+          .doc(slotId)
+          .get();
+
+      if (!doc.exists) {
+        return {
+          'isAvailable': false,
+          'reason': 'No declarations found for this slot',
+          'slotId': slotId,
+          'date': dateStr,
+        };
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      final slotUsers = data['slotUsers'] as int? ?? 0;
+      final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+      final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
+
+      final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
+
+      return {
+        'isAvailable': isFullyDeclared,
+        'reason': isFullyDeclared
+            ? 'All ${slotUsers} users declared unavailability'
+            : 'Only ${declarations.length} of ${slotUsers} users declared',
+        'slotId': slotId,
+        'vehicleType': vehicleType,
+        'slotUsers': slotUsers,
+        'declarationsCount': declarations.length,
+        'declarations': declarations,
+        'date': dateStr,
+      };
+    } catch (e) {
+      print('Error checking slot availability from declarations: $e');
+      return {
+        'isAvailable': false,
+        'reason': 'Error: ${e.toString()}',
+        'slotId': slotId,
+      };
+    }
+  }
+
+// ✅ NEW: Get available slots with detailed user information
+  Future<List<Map<String, dynamic>>> getAvailableSlotsWithUserDetails({
+    required DateTime date,
+    String? vehicleTypeFilter,
+  }) async {
+    try {
+      final availableSlots = await getAvailableSlotsFromDeclarations(
+        date: date,
+        vehicleTypeFilter: vehicleTypeFilter,
+      );
+
+      // For each available slot, get the actual slot details from Slots collection
+      List<Future<DocumentSnapshot>> slotDetailsFutures = [];
+      for (final slot in availableSlots) {
+        slotDetailsFutures.add(
+            _firestore.collection('Slots').doc(slot['slotId']).get()
+        );
+      }
+
+      final slotDetailsResults = await Future.wait(slotDetailsFutures);
+
+      List<Map<String, dynamic>> detailedSlots = [];
+      for (int i = 0; i < availableSlots.length; i++) {
+        final slot = availableSlots[i];
+        final slotDoc = slotDetailsResults[i];
+
+        if (slotDoc.exists) {
+          final slotData = slotDoc.data() as Map<String, dynamic>;
+          final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
+
+          detailedSlots.add({
+            ...slot, // Include availability info
+            'slotData': slotData, // Include full slot details
+            'allotedUsers': allotedTo, // Include user details
+            'slotPriority': slotData['slotPriority'] ?? 'permanent',
+            'vehicleCompatibility': slotData['VehicleCompatibility'],
+          });
+        }
+      }
+
+      return detailedSlots;
+    } catch (e) {
+      print('Error getting available slots with user details: $e');
+      return [];
+    }
+  }
+
+// ✅ MODIFIED: Add slotUsers count to batchSaveAvailabilityDeclarations
   Future<Map<String, dynamic>> batchSaveAvailabilityDeclarations({
     required Map<DateTime, String> declarations, // Map of date -> reason
     required String userEmail,
@@ -416,41 +801,88 @@ class BookingBackend {
       }
 
       final slotId = userSlot['slotId'] as String;
+      // Get vehicle type from cached slot data
+      final vehicleType = userSlot['slotData']?['vehicleType'] as String? ?? 'BIKE';
+      // ✅ NEW: Get slot users count from cached slot data
+      final allotedTo = userSlot['slotData']?['alloted_to'] as List<dynamic>? ?? [];
+      final slotUsers = allotedTo.length;
 
-      // Use batch write for multiple declarations
-      final batch = _firestore.batch();
-      int operationCount = 0;
+      // Process declarations in batches due to Firestore transaction limits
+      final entries = declarations.entries.toList();
+      final batchSize = 400;
+      int totalOperations = 0;
 
-      for (final entry in declarations.entries) {
-        final date = entry.key;
-        final reason = entry.value;
-        final dateStr = _formatDateForDocId(date);
+      for (int i = 0; i < entries.length; i += batchSize) {
+        final batch = entries.skip(i).take(batchSize).toList();
 
-        final availabilityRef = _firestore
-            .collection('Bookings')
-            .doc(dateStr)
-            .collection('AvailableToday')
-            .doc(slotId);
+        await _firestore.runTransaction((transaction) async {
+          // Read all documents first
+          Map<String, DocumentSnapshot> docs = {};
+          for (final entry in batch) {
+            final dateStr = _formatDateForDocId(entry.key);
+            final docRef = _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .doc(slotId);
+            docs[dateStr] = await transaction.get(docRef);
+          }
 
-        batch.set(availabilityRef, {
-          'declaredBy': userEmail,
-          'reason': reason,
-          'slotId': slotId,
-          'declaredAt': FieldValue.serverTimestamp(),
-          'date': dateStr,
-        }, SetOptions(merge: true)); // Use merge to update if exists
+          // Then update all documents
+          for (final entry in batch) {
+            final date = entry.key;
+            final reason = entry.value;
+            final dateStr = _formatDateForDocId(date);
 
-        operationCount++;
+            final availabilityRef = _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .doc(slotId);
 
-        // Firestore batch limit is 500 operations
-        if (operationCount >= 500) break;
+            final existingDoc = docs[dateStr]!;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final newDeclaration = {
+              'declaredBy': userEmail,
+              'reason': reason,
+              'declaredAt': now,
+            };
+
+            if (existingDoc.exists) {
+              // Document exists, update declarations array
+              final data = existingDoc.data() as Map<String, dynamic>;
+              final declarationsArray = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+              // Remove existing declaration from this user
+              declarationsArray.removeWhere((declaration) => declaration['declaredBy'] == userEmail);
+
+              // Add new declaration
+              declarationsArray.add(newDeclaration);
+
+              transaction.update(availabilityRef, {
+                'declarations': declarationsArray,
+                'lastUpdated': FieldValue.serverTimestamp(),
+              });
+            } else {
+              // Document doesn't exist, create new one
+              transaction.set(availabilityRef, {
+                'date': dateStr,
+                'slotId': slotId,
+                'vehicleType': vehicleType,
+                'slotUsers': slotUsers, // ✅ NEW: Add slot users count
+                'declarations': [newDeclaration],
+                'createdAt': FieldValue.serverTimestamp(),
+                'lastUpdated': FieldValue.serverTimestamp(),
+              });
+            }
+            totalOperations++;
+          }
+        });
       }
-
-      await batch.commit();
 
       return {
         'success': true,
-        'message': 'Successfully saved $operationCount availability declarations',
+        'message': 'Successfully saved $totalOperations availability declarations',
       };
 
     } catch (e) {
@@ -463,7 +895,9 @@ class BookingBackend {
 
 
 
-  // ✅ OPTIMIZED: Clear all declarations with batch delete
+
+
+
   Future<Map<String, dynamic>> clearAllUserAvailabilityDeclarationsOptimized(String userEmail) async {
     try {
       final userSlot = await _getUserAssignedSlot(userEmail);
@@ -474,50 +908,66 @@ class BookingBackend {
       final slotId = userSlot['slotId'] as String;
       final today = DateTime.now();
 
-      // Create batch for deletion
-      final batch = _firestore.batch();
       int deleteCount = 0;
 
-      // Check next 30 days and batch delete
-      List<Future<DocumentSnapshot>> futures = [];
-      List<DocumentReference> refsToCheck = [];
+      // Process in batches to avoid transaction limits
+      for (int i = 0; i < 30; i += 10) {
+        await _firestore.runTransaction((transaction) async {
+          // Get documents for this batch
+          Map<String, DocumentSnapshot> docs = {};
+          List<String> dateStrs = [];
 
-      for (int i = 0; i < 30; i++) {
-        final date = today.add(Duration(days: i));
-        final dateStr = _formatDateForDocId(date);
+          for (int j = i; j < i + 10 && j < 30; j++) {
+            final date = today.add(Duration(days: j));
+            final dateStr = _formatDateForDocId(date);
+            dateStrs.add(dateStr);
 
-        final availabilityRef = _firestore
-            .collection('Bookings')
-            .doc(dateStr)
-            .collection('AvailableToday')
-            .doc(slotId);
-
-        refsToCheck.add(availabilityRef);
-        futures.add(availabilityRef.get());
-      }
-
-      // Get all documents in parallel
-      final results = await Future.wait(futures);
-
-      for (int i = 0; i < results.length; i++) {
-        final doc = results[i];
-        if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>?;
-          if (data?['declaredBy'] == userEmail) {
-            batch.delete(refsToCheck[i]);
-            deleteCount++;
+            final docRef = _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .doc(slotId);
+            docs[dateStr] = await transaction.get(docRef);
           }
-        }
-      }
 
-      if (deleteCount > 0) {
-        await batch.commit();
+          // Update documents
+          for (final dateStr in dateStrs) {
+            final availabilityRef = _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .doc(slotId);
+
+            final doc = docs[dateStr]!;
+            if (doc.exists) {
+              final data = doc.data() as Map<String, dynamic>;
+              final declarationsArray = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+              // Check if this user has any declarations
+              final userDeclarationExists = declarationsArray.any((declaration) => declaration['declaredBy'] == userEmail);
+
+              if (userDeclarationExists) {
+                // Remove this user's declarations
+                declarationsArray.removeWhere((declaration) => declaration['declaredBy'] == userEmail);
+                deleteCount++;
+
+                if (declarationsArray.isEmpty) {
+                  // Delete document if no declarations left
+                  transaction.delete(availabilityRef);
+                } else {
+                  // Update with remaining declarations
+                  transaction.update(availabilityRef, {'declarations': declarationsArray});
+                }
+              }
+            }
+          }
+        });
       }
 
       return {
         'success': true,
         'message': deleteCount > 0
-            ? 'All availability declarations cleared ($deleteCount removed)'
+            ? 'All your availability declarations cleared ($deleteCount removed)'
             : 'No availability declarations found to clear',
       };
 
@@ -591,61 +1041,91 @@ class BookingBackend {
     }
   }
 
-// ✅ OPTIMIZED: Single method to handle save/remove based on action
-  Future<Map<String, dynamic>> updateUserAvailabilityDeclaration({
+
+  Future<List<Map<String, dynamic>>> getSlotDeclarationsForDate({
+    required String slotId,
     required DateTime date,
-    required String userEmail,
-    String? reason, // null means remove, non-null means save/update
   }) async {
     try {
       final dateStr = _formatDateForDocId(date);
 
-      // Get user's assigned slot (uses cache)
-      final userSlot = await _getUserAssignedSlot(userEmail);
-      if (userSlot == null) {
-        return {'success': false, 'message': 'User has no assigned slot'};
+      final doc = await _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('AvailableToday')
+          .doc(slotId)
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final declarationsArray = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+        // Add additional metadata to each declaration
+        return declarationsArray.map((declaration) => {
+          ...declaration,
+          'slotId': slotId,
+          'date': dateStr,
+        }).toList();
       }
 
-      final slotId = userSlot['slotId'] as String;
-
-      await _firestore.runTransaction((transaction) async {
-        final availabilityRef = _firestore
-            .collection('Bookings')
-            .doc(dateStr)
-            .collection('AvailableToday')
-            .doc(slotId);
-
-        if (reason == null) {
-          // Remove declaration
-          final existingDoc = await transaction.get(availabilityRef);
-          if (existingDoc.exists) {
-            final existingData = existingDoc.data();
-            if (existingData?['declaredBy'] == userEmail) {
-              transaction.delete(availabilityRef);
-            }
-          }
-        } else {
-          // Save/update declaration
-          transaction.set(availabilityRef, {
-            'declaredBy': userEmail,
-            'reason': reason,
-            'slotId': slotId,
-            'declaredAt': FieldValue.serverTimestamp(),
-            'date': dateStr,
-          }, SetOptions(merge: true));
-        }
-      });
-
-      return {
-        'success': true,
-        'message': reason == null ? 'Declaration removed' : 'Declaration saved',
-      };
-
+      return [];
     } catch (e) {
-      return {
-        'success': false,
-        'message': e.toString().replaceAll('Exception: ', ''),
-      };
+      print('Error getting slot declarations for date: $e');
+      return [];
+    }
+  }
+
+// ✅ NEW: Get declarations for multiple dates for a slot
+  Future<Map<DateTime, List<Map<String, dynamic>>>> getSlotDeclarationsForDates({
+    required String slotId,
+    required List<DateTime> dates,
+  }) async {
+    try {
+      Map<DateTime, List<Map<String, dynamic>>> results = {};
+
+      // Create futures for parallel execution
+      List<Future<DocumentSnapshot>> futures = [];
+      List<DateTime> datesList = [];
+
+      for (DateTime date in dates) {
+        final dateStr = _formatDateForDocId(date);
+        datesList.add(date);
+        futures.add(
+            _firestore
+                .collection('Bookings')
+                .doc(dateStr)
+                .collection('AvailableToday')
+                .doc(slotId)
+                .get()
+        );
+      }
+
+      // Execute all reads in parallel
+      final snapshots = await Future.wait(futures);
+
+      for (int i = 0; i < snapshots.length; i++) {
+        final snapshot = snapshots[i];
+        final date = datesList[i];
+
+        if (snapshot.exists) {
+          final data = snapshot.data() as Map<String, dynamic>;
+          final declarationsArray = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+
+          // Add metadata to each declaration
+          results[date] = declarationsArray.map((declaration) => {
+            ...declaration,
+            'slotId': slotId,
+            'date': _formatDateForDocId(date),
+          }).toList();
+        } else {
+          results[date] = [];
+        }
+      }
+
+      return results;
+    } catch (e) {
+      print('Error getting slot declarations for dates: $e');
+      return {};
     }
   }
 
@@ -1117,139 +1597,169 @@ class BookingBackend {
 
 
 
-// 1. New Request - for users who don't have any slot
-  Future<Map<String, dynamic>> requestNewSlot() async {
+  Future<Map<String, dynamic>> createSlotRequestForDate({
+    required DateTime requestDate,
+    required String targetSlotId,
+    required List<String> slotUsersEmails, // The 2 slot users who declared unavailability
+  }) async {
     try {
-      // Get current user
-      User? currentUser = _auth.currentUser;
-
+      final currentUser = _auth.currentUser;
       if (currentUser == null) {
+        return {'success': false, 'message': 'No user logged in'};
+      }
+
+      final userEmail = currentUser.email!;
+      final dateStr = _formatDateForDocId(requestDate);
+
+      // Validate that the slot users actually declared unavailability for this date
+      final availabilityCheck = await _validateSlotAvailability(targetSlotId, requestDate, slotUsersEmails);
+      if (!availabilityCheck['isValid']) {
         return {
           'success': false,
-          'message': 'No user logged in',
+          'message': availabilityCheck['message'],
         };
       }
 
-      // Get user email
-      String userEmail = currentUser.email ?? '';
+      // Check if user already has a request for this slot on this date
+      final existingRequest = await _firestore
+          .collection('requests')
+          .doc(dateStr)
+          .collection('slots')
+          .doc(targetSlotId)
+          .get();
 
-      // Create request data (no vehicle type for new requests since no slot exists yet)
+      if (existingRequest.exists) {
+        final data = existingRequest.data()!;
+        final requestedBy = data['requestedBy'] as String?;
+
+        if (requestedBy == userEmail) {
+          return {
+            'success': false,
+            'message': 'You have already requested this slot for ${_getDateDisplayName(requestDate)}',
+          };
+        } else {
+          return {
+            'success': false,
+            'message': 'This slot has already been requested by another user for ${_getDateDisplayName(requestDate)}',
+          };
+        }
+      }
+
+      // Create the request structure
       Map<String, dynamic> requestData = {
-        'email': userEmail,
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'NewReq',
-        'status': 'pending',
-        // No vehicleType for new requests since they don't have a slot yet
+        'requestedBy': userEmail,
+        'requestedAt': FieldValue.serverTimestamp(),
+        'requestedTo': {
+          for (String email in slotUsersEmails) email: {
+            'email': email,
+            'notified': false,
+            'notifiedAt': null,
+          }
+        },
+        'status': {
+          'pending': true,
+          'acceptedBy': <String, dynamic>{}, // Will store email -> timestamp when accepted
+          'rejectedBy': <String, dynamic>{}, // Will store email -> timestamp when rejected
+          'finalStatus': 'pending', // 'approved', 'rejected', 'pending'
+          'lastUpdated': FieldValue.serverTimestamp(),
+        },
+        'slotId': targetSlotId,
+        'requestDate': dateStr,
+        'metadata': {
+          'totalSlotUsers': slotUsersEmails.length,
+          'requesterVehicleType': await _getRequesterVehicleType(userEmail),
+        }
       };
 
-      // Add to Firestore 'requests' collection
-      await _firestore.collection('requests').add(requestData);
+      // Create the document structure: requests/{date}/slots/{slotId}
+      await _firestore
+          .collection('requests')
+          .doc(dateStr)
+          .collection('slots')
+          .doc(targetSlotId)
+          .set(requestData);
 
       return {
         'success': true,
-        'message': 'New slot request submitted successfully!',
+        'message': 'Slot request submitted successfully for ${_getDateDisplayName(requestDate)}!',
       };
 
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error submitting new slot request: ${e.toString()}',
+        'message': 'Error submitting slot request: ${e.toString()}',
       };
     }
   }
 
-// 2. Today Request - for users who want to request today's slot
-  Future<Map<String, dynamic>> requestTodaySlot(String currentSlotId) async {
+// ✅ HELPER: Validate slot availability for the date
+  Future<Map<String, dynamic>> _validateSlotAvailability(
+      String slotId,
+      DateTime date,
+      List<String> expectedEmails
+      ) async {
     try {
-      // Get current user
-      User? currentUser = _auth.currentUser;
+      final dateStr = _formatDateForDocId(date);
 
-      if (currentUser == null) {
+      final availabilityDoc = await _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('AvailableToday')
+          .doc(slotId)
+          .get();
+
+      if (!availabilityDoc.exists) {
         return {
-          'success': false,
-          'message': 'No user logged in',
+          'isValid': false,
+          'message': 'This slot is not available for ${_getDateDisplayName(date)}',
         };
       }
 
-      // Get user email
-      String userEmail = currentUser.email ?? '';
+      final data = availabilityDoc.data()!;
+      final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+      final slotUsers = data['slotUsers'] as int? ?? 0;
 
-      // Get vehicle type from the current slot
-      String? vehicleType = await _getSlotVehicleType(currentSlotId);
-
-      // Create request data
-      Map<String, dynamic> requestData = {
-        'email': userEmail,
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'TodReq',
-        'status': 'pending',
-        'currentSlotId': currentSlotId,
-        'vehicleType': vehicleType ?? 'Unknown', // Add vehicle type from slot
-      };
-
-      // Add to Firestore 'requests' collection
-      await _firestore.collection('requests').add(requestData);
-
-      return {
-        'success': true,
-        'message': 'Today slot request submitted successfully!',
-      };
-
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Error submitting today slot request: ${e.toString()}',
-      };
-    }
-  }
-
-// 3. Alternative Request - for users who want alternative slot
-  Future<Map<String, dynamic>> requestAlternativeSlot(String slotId) async {
-    try {
-      // Get current user
-      User? currentUser = _auth.currentUser;
-
-      if (currentUser == null) {
+      // Check if all slot users declared unavailability
+      if (declarations.length < slotUsers) {
         return {
-          'success': false,
-          'message': 'No user logged in',
+          'isValid': false,
+          'message': 'Not all slot users have declared unavailability for this date',
         };
       }
 
-      // Get user email
-      String userEmail = currentUser.email ?? '';
+      // Verify the provided emails match the declared users
+      final declaredEmails = declarations.map((d) => d['declaredBy'] as String).toSet();
+      final providedEmails = expectedEmails.toSet();
 
-      // Get vehicle type from the current slot
-      String? vehicleType = await _getSlotVehicleType(slotId);
+      if (!declaredEmails.containsAll(providedEmails)) {
+        return {
+          'isValid': false,
+          'message': 'Provided slot users do not match declared users',
+        };
+      }
 
-      // Create request data
-      Map<String, dynamic> requestData = {
-        'email': userEmail,
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'AltReq',
-        'status': 'pending',
-        'currentSlotId': slotId, // Added missing currentSlotId
-        'vehicleType': vehicleType ?? 'Unknown', // Add vehicle type from slot
-      };
-
-      // Add to Firestore 'requests' collection
-      await _firestore.collection('requests').add(requestData);
-
-      return {
-        'success': true,
-        'message': 'Alternative slot request submitted successfully!',
-      };
-
+      return {'isValid': true, 'message': 'Slot is available for request'};
     } catch (e) {
       return {
-        'success': false,
-        'message': 'Error submitting alternative slot request: ${e.toString()}',
+        'isValid': false,
+        'message': 'Error validating slot availability: $e',
       };
     }
   }
 
-
-
+// ✅ HELPER: Get requester's vehicle type
+  Future<String> _getRequesterVehicleType(String userEmail) async {
+    try {
+      final userSlot = await _getUserAssignedSlot(userEmail);
+      if (userSlot != null) {
+        final slotData = userSlot['slotData'] as Map<String, dynamic>;
+        return slotData['vehicleType'] as String? ?? 'UNKNOWN';
+      }
+      return 'UNKNOWN';
+    } catch (e) {
+      return 'UNKNOWN';
+    }
+  }
 
 
   Future<String?> _getSlotVehicleType(String slotId) async {
@@ -1310,56 +1820,6 @@ class BookingBackend {
       };
     }
   }
-
-
-
-// Helper method to get request type display name
-  String getRequestTypeDisplayName(String requestType) {
-    switch (requestType) {
-      case 'NewReq':
-        return 'New Slot Request';
-      case 'TodReq':
-        return 'Today Slot Request';
-      case 'AltReq':
-        return 'Alternative Slot Request';
-      default:
-        return 'Unknown Request Type';
-    }
-  }
-
-// Helper method to get all pending requests count by type
-  Future<Map<String, int>> getPendingRequestsCountByType() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return {};
-
-      final query = await _firestore
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .where('status', isEqualTo: 'pending')
-          .get();
-
-      Map<String, int> counts = {
-        'NewReq': 0,
-        'TodReq': 0,
-        'AltReq': 0,
-      };
-
-      for (var doc in query.docs) {
-        final type = doc.data()['type'] as String?;
-        if (type != null && counts.containsKey(type)) {
-          counts[type] = counts[type]! + 1;
-        }
-      }
-
-      return counts;
-    } catch (e) {
-      print('Error getting pending requests count: $e');
-      return {};
-    }
-  }
-
-
 
 
 }

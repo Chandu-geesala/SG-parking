@@ -44,6 +44,18 @@ class _BookingCardsState extends State<BookingCards> {
   Map<DateTime, String> _datePreferences = {}; // 'use', 'leave', 'wfh'
   DateTime? _selectedDateForOptions;
 
+
+  // Add these state variables after existing ones
+
+
+  Map<String, List<Map<String, dynamic>>> _userSlotRequests = {};
+  bool _isLoadingRequests = false;
+  StreamSubscription<QuerySnapshot>? _requestsSubscription;
+
+
+
+
+
   // Booking state variables
   Map<String, dynamic>? _todaysBooking;
 
@@ -77,10 +89,542 @@ bool _isLoadingPreferences = false;
     return List.generate(5, (index) => monday.add(Duration(days: index)));
   }
 
-// 4. Add method to fetch weekly booking count
+
+  Future<void> _loadUserSlotRequests() async {
+    print('🔍 _loadUserSlotRequests() called - mounted: $mounted');
+
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingRequests = true;
+    });
+    print('📱 Set _isLoadingRequests = true');
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final userSlot = await _userSlotFuture;
+
+      print('👤 User: ${user?.email}');
+      print('🅿️ User slot: $userSlot');
+
+      if (user != null && userSlot != null) {
+        final slotId = userSlot['slotId'] as String;
+        final userEmail = user.email!;
+
+        print('🎯 Looking for requests for slot: $slotId, user: $userEmail');
+
+        // Get current date and next 5 working days
+        final workingDays = _getNextWorkingDays(5);
+        print('📅 Working days: ${workingDays.map((d) => DateFormat('yyyy-MM-dd').format(d)).toList()}');
+
+        // Query requests for user's slot for these dates
+        List<Future<QuerySnapshot>> futures = [];
+
+        for (DateTime date in workingDays) {
+          final dateStr = DateFormat('yyyy-MM-dd').format(date);
+          print('🔍 Adding query for date: $dateStr');
+          futures.add(
+              FirebaseFirestore.instance
+                  .collection('requests')
+                  .doc(dateStr)
+                  .collection('slots')
+                  .where('slotId', isEqualTo: slotId)
+                  .where('status.finalStatus', isEqualTo: 'pending') // Still filter by pending
+                  .get()
+          );
+        }
+
+        print('⏳ Executing ${futures.length} parallel queries...');
+        final results = await Future.wait(futures);
+        Map<String, List<Map<String, dynamic>>> requestsByDate = {};
+
+        for (int i = 0; i < results.length; i++) {
+          final dateStr = DateFormat('yyyy-MM-dd').format(workingDays[i]);
+          final querySnapshot = results[i];
+
+          print('📊 Date $dateStr: Found ${querySnapshot.docs.length} documents');
+
+          List<Map<String, dynamic>> dayRequests = [];
+          for (var doc in querySnapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            print('📄 Document ${doc.id}: $data');
+
+            // Check if current user is one of the requested users
+            final requestedTo = data['requestedTo'] as Map<String, dynamic>? ?? {};
+            print('🎯 RequestedTo: $requestedTo');
+            print('🔍 User email in requestedTo: ${requestedTo.containsKey(userEmail)}');
+
+            if (requestedTo.containsKey(userEmail)) {
+              // ✅ NEW: Check if current user has already responded
+              final userRequestData = requestedTo[userEmail] as Map<String, dynamic>? ?? {};
+              final hasUserResponded = userRequestData['responded'] == true;
+
+              print('👤 User request data: $userRequestData');
+              print('✅ Has user responded: $hasUserResponded');
+
+              // ✅ ONLY show request if user hasn't responded yet
+              if (!hasUserResponded) {
+                print('✅ Found request for user that needs response!');
+                dayRequests.add({
+                  ...data,
+                  'requestId': doc.id,
+                  'dateStr': dateStr,
+                  'date': workingDays[i],
+                });
+              } else {
+                print('⏭️ User already responded, skipping request');
+              }
+            } else {
+              print('❌ Request not for this user');
+            }
+          }
+
+          if (dayRequests.isNotEmpty) {
+            requestsByDate[dateStr] = dayRequests;
+            print('📝 Added ${dayRequests.length} requests for $dateStr');
+          }
+        }
+
+        print('🎉 Total requests by date: $requestsByDate');
+
+        if (mounted) {
+          setState(() {
+            _userSlotRequests = requestsByDate;
+          });
+          print('✅ Updated state with ${requestsByDate.length} dates having requests');
+        }
+      } else {
+        print('❌ User or userSlot is null');
+      }
+    } catch (e) {
+      print('❌ Error loading user slot requests: $e');
+      print('📍 Stack trace: ${StackTrace.current}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingRequests = false;
+        });
+        print('📱 Set _isLoadingRequests = false');
+      }
+    }
+  }
 
 
-  // ✅ ADD this initState method to your _BookingCardsState class:
+  // Add this method to handle accept/reject responses
+  Future<void> _respondToSlotRequest(
+      String requestId,
+      String dateStr,
+      bool isAccepted,
+      String slotId,
+      ) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final userEmail = user.email!;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Text(isAccepted ? 'Accepting request...' : 'Rejecting request...'),
+            ],
+          ),
+        ),
+      );
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final requestRef = FirebaseFirestore.instance
+            .collection('requests')
+            .doc(dateStr)
+            .collection('slots')
+            .doc(requestId);
+
+        final requestDoc = await transaction.get(requestRef);
+        if (!requestDoc.exists) {
+          throw Exception('Request not found');
+        }
+
+        final data = requestDoc.data()!;
+        final status = Map<String, dynamic>.from(data['status'] ?? {});
+        final requestedTo = Map<String, dynamic>.from(data['requestedTo'] ?? {});
+
+        if (isAccepted) {
+          status['acceptedBy'] = {
+            ...Map<String, dynamic>.from(status['acceptedBy'] ?? {}),
+            userEmail: FieldValue.serverTimestamp(),
+          };
+        } else {
+          status['rejectedBy'] = {
+            ...Map<String, dynamic>.from(status['rejectedBy'] ?? {}),
+            userEmail: FieldValue.serverTimestamp(),
+          };
+        }
+
+        // Update user's response in requestedTo
+        if (requestedTo.containsKey(userEmail)) {
+          requestedTo[userEmail]['responded'] = true;
+          requestedTo[userEmail]['response'] = isAccepted ? 'accepted' : 'rejected';
+          requestedTo[userEmail]['respondedAt'] = FieldValue.serverTimestamp();
+        }
+
+        // Check if all users have responded
+        final totalUsers = data['metadata']['totalSlotUsers'] as int;
+        final acceptedCount = (status['acceptedBy'] as Map? ?? {}).length;
+        final rejectedCount = (status['rejectedBy'] as Map? ?? {}).length;
+
+        if (acceptedCount == totalUsers) {
+          status['finalStatus'] = 'approved';
+        } else if (rejectedCount > 0) {
+          status['finalStatus'] = 'rejected';
+        }
+
+        status['lastUpdated'] = FieldValue.serverTimestamp();
+
+        transaction.update(requestRef, {
+          'status': status,
+          'requestedTo': requestedTo,
+        });
+      });
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      _backend.showSnackBar(
+        context,
+        isAccepted ? 'Request accepted successfully!' : 'Request rejected successfully!',
+      );
+
+      // Refresh requests
+      await _loadUserSlotRequests();
+
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+      _backend.showSnackBar(
+        context,
+        'Error responding to request: $e',
+        isError: true,
+      );
+    }
+  }
+
+
+
+
+
+// Add this widget to display slot requests
+  Widget _buildSlotRequestsCard() {
+    if (_isLoadingRequests) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Theme.of(context).cardTheme.shadowColor ??
+                  (Theme.of(context).brightness == Brightness.dark
+                      ? Colors.black.withOpacity(0.3)
+                      : Colors.grey.withOpacity(0.1)),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text(
+              'Loading slot requests...',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_userSlotRequests.isEmpty) {
+      return SizedBox.shrink(); // Don't show card if no requests
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).cardTheme.shadowColor ??
+                (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.1)),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.notifications_active,
+                  color: Colors.orange[600],
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Slot Requests',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ) ?? TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Pending requests for your slot',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_userSlotRequests.values.fold(0, (sum, list) => sum + list.length)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange[800],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Requests List
+          ...(_userSlotRequests.entries.map((entry) {
+            final dateStr = entry.key;
+            final requests = entry.value;
+            return Column(
+              children: requests.map((request) => _buildRequestTile(request, dateStr)).toList(),
+            );
+          }).toList()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRequestTile(Map<String, dynamic> request, String dateStr) {
+    final requestedBy = request['requestedBy'] as String;
+    final slotId = request['slotId'] as String;
+    final requestId = request['requestId'] as String;
+    final date = request['date'] as DateTime;
+    final requesterVehicleType = request['metadata']?['requesterVehicleType'] as String? ?? 'UNKNOWN';
+
+    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    final requesterName = _backend.getDisplayNameFromEmail(requestedBy);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[800]?.withOpacity(0.5)
+            : Colors.orange[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.orange.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.person_outline,
+                  color: Colors.orange[600],
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      requesterName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'wants to use your slot',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getVehicleColor(requesterVehicleType).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _getVehicleIcon(requesterVehicleType),
+                      size: 12,
+                      color: _getVehicleColor(requesterVehicleType),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      requesterVehicleType,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: _getVehicleColor(requesterVehicleType),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Request Details
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.calendar_today,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'Slot: ${slotId.toUpperCase()}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Action Buttons
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _respondToSlotRequest(requestId, dateStr, false, slotId),
+                  icon: Icon(Icons.close, size: 18),
+                  label: Text('Reject'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[600],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _respondToSlotRequest(requestId, dateStr, true, slotId),
+                  icon: Icon(Icons.check, size: 18),
+                  label: Text('Accept'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[600],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +636,8 @@ bool _isLoadingPreferences = false;
     _initializeData();
     _loadPreferencesFromBackend();
   }
+
+
 
 
 
@@ -1142,10 +1688,18 @@ bool _isLoadingPreferences = false;
     );
   }
 
+
+
   Widget _buildBookingStatusCard() {
     final today = DateTime.now();
     final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedSelectedDate = DateTime(_selectedBookingDate.year, _selectedBookingDate.month, _selectedBookingDate.day);
     final isSelectedDateToday = DateUtils.isSameDay(_selectedBookingDate, normalizedToday);
+
+    // ✅ NEW: Check if user declared unavailability for this date FIRST
+    if (_datePreferences.containsKey(normalizedSelectedDate)) {
+      return _buildUserDeclarationCard(normalizedSelectedDate);
+    }
 
     // If selected date is today, use _todaysBooking data
     if (isSelectedDateToday) {
@@ -1192,6 +1746,179 @@ bool _isLoadingPreferences = false;
       },
     );
   }
+
+
+
+  Widget _buildUserDeclarationCard(DateTime date) {
+    final preference = _datePreferences[date];
+    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    String title = '';
+    String subtitle = '';
+    IconData icon = Icons.info_outline;
+    Color primaryColor = Colors.grey[600]!;
+    Color backgroundColor = Colors.grey[50]!;
+
+    switch (preference) {
+      case 'leave':
+        title = 'You Declared Leave';
+        subtitle = 'You have marked yourself as on leave for this day';
+        icon = Icons.beach_access;
+        primaryColor = Colors.orange[600]!;
+        backgroundColor = Theme.of(context).brightness == Brightness.dark
+            ? Colors.orange[900]!.withOpacity(0.2)
+            : Colors.orange[50]!;
+        break;
+      case 'wfh':
+        title = 'You Declared Work From Home';
+        subtitle = 'You have marked yourself as working from home for this day';
+        icon = Icons.home_work;
+        primaryColor = Colors.blue[600]!;
+        backgroundColor = Theme.of(context).brightness == Brightness.dark
+            ? Colors.blue[900]!.withOpacity(0.2)
+            : Colors.blue[50]!;
+        break;
+      default:
+        title = 'You Declared Unavailable';
+        subtitle = 'You have marked yourself as unavailable for this day';
+        icon = Icons.event_busy;
+        primaryColor = Colors.grey[600]!;
+        backgroundColor = Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[800]!
+            : Colors.grey[100]!;
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: primaryColor,
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Status Icon and Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: primaryColor,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Date Info
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.calendar_today,
+                  size: 16,
+                  color: primaryColor,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}, ${date.year}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Info Message
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey[800]!.withOpacity(0.5)
+                  : Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No booking needed - your slot is available for others to request',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
 
 
   Widget _buildLoadingBookingStatusCard() {
@@ -1371,17 +2098,18 @@ bool _isLoadingPreferences = false;
           ),
         );
       case BookingStatus.unavailable:
-        return OutlinedButton.icon(
-          onPressed: null,
-          icon: Icon(Icons.support_agent, size: 20),
-          label: Text('Request Alternative'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.orange[600],
-            side: BorderSide(color: Colors.orange[600]!),
+        return ElevatedButton.icon(
+          onPressed: () => _showAvailableSlotsBottomSheet(_selectedBookingDate), // ✅ NEW
+          icon: Icon(Icons.search, size: 20),
+          label: Text('Request Available Slots'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue[600],
+            foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
+            elevation: 2,
           ),
         );
       case BookingStatus.past:
@@ -1410,6 +2138,573 @@ bool _isLoadingPreferences = false;
         );
     }
   }
+
+  void _showAvailableSlotsBottomSheet(DateTime date) {
+    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.local_parking,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Available Slots',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          Text(
+                            '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.close,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+
+
+
+              // Content
+              Expanded(
+                child: FutureBuilder<Map<String, dynamic>?>(
+                  future: _userSlotFuture, // ✅ Use existing user slot data
+                  builder: (context, userSlotSnapshot) {
+                    if (userSlotSnapshot.connectionState == ConnectionState.waiting) {
+                      return _buildLoadingState();
+                    }
+
+                    if (userSlotSnapshot.hasError || userSlotSnapshot.data == null) {
+                      return _buildErrorState('Unable to get user vehicle type');
+                    }
+
+                    // ✅ Extract vehicle type from existing cached data
+                    final userSlotData = userSlotSnapshot.data!['slotData'] as Map<String, dynamic>;
+                    final userVehicleType = userSlotData['vehicleType'] as String? ?? 'BIKE';
+
+                    return FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _backend.getAvailableSlotsWithUserDetails(
+                        date: date,
+                        vehicleTypeFilter: userVehicleType, // ✅ Pass user's vehicle type
+                      ),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return _buildLoadingState();
+                        }
+
+                        if (snapshot.hasError) {
+                          return _buildErrorState(snapshot.error.toString());
+                        }
+
+                        final availableSlots = snapshot.data ?? [];
+
+                        if (availableSlots.isEmpty) {
+                          return _buildEmptyState(date);
+                        }
+
+                        return _buildAvailableSlotsList(availableSlots, scrollController);
+                      },
+                    );
+                  },
+                ),
+              ),
+
+
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            strokeWidth: 3,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Finding available slots...',
+            style: TextStyle(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ NEW: Error state widget
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.red[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading slots',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.red[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please try again later',
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+// ✅ NEW: Empty state widget
+  Widget _buildEmptyState(DateTime date) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.event_busy,
+              size: 64,
+              color: Colors.orange[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Available Slots',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'All slots are currently occupied for this date',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                // You can add request admin functionality here
+              },
+              icon: Icon(Icons.support_agent),
+              label: Text('Contact Admin'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.primary,
+                side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+// ✅ NEW: Available slots list widget
+  Widget _buildAvailableSlotsList(List<Map<String, dynamic>> availableSlots, ScrollController scrollController) {
+    return ListView.builder(
+      controller: scrollController,
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+      itemCount: availableSlots.length,
+      itemBuilder: (context, index) {
+        final slot = availableSlots[index];
+        return _buildAvailableSlotCard(slot);
+      },
+    );
+  }
+
+// ✅ NEW: Individual slot card widget
+  Widget _buildAvailableSlotCard(Map<String, dynamic> slot) {
+    final slotId = slot['slotId'] as String;
+    final vehicleType = slot['vehicleType'] as String;
+    final slotUsers = slot['slotUsers'] as int;
+    final declarations = List<Map<String, dynamic>>.from(slot['declarations'] ?? []);
+    final slotData = slot['slotData'] as Map<String, dynamic>?;
+    final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
+
+    final slotPriority = slotData?['slotPriority'] as String? ?? 'permanent';
+    final vehicleCompatibility = slotData?['VehicleCompatibility'] as String?;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[800]
+            : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.black.withOpacity(0.3)
+                : Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _getVehicleColor(vehicleType).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _getVehicleIcon(vehicleType),
+                  color: _getVehicleColor(vehicleType),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      slotId.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      '$vehicleType • $slotPriority',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Available',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green[700],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Availability info
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'All $slotUsers slot users declared unavailability',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Declared users (collapsible)
+          ExpansionTile(
+            title: Text(
+              'Slot Users ($slotUsers)',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            childrenPadding: const EdgeInsets.only(top: 8),
+            children: declarations.map((declaration) {
+              final userEmail = declaration['declaredBy'] as String;
+              final reason = declaration['reason'] as String;
+              final userName = _getUserNameFromEmail(userEmail, allotedUsers);
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _getReasonColor(reason),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        userName,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _getReasonColor(reason).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _getReasonDisplayText(reason),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: _getReasonColor(reason),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Action button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _requestSlotFromAvailable(
+                slotId,
+                _selectedBookingDate, // Pass the selected date
+                declarations, // Pass the declarations list
+              ),
+              icon: Icon(Icons.send, size: 18),
+              label: Text('Request This Slot'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ NEW: Helper methods
+  String _getUserNameFromEmail(String email, List<Map<String, dynamic>> allotedUsers) {
+    try {
+      final user = allotedUsers.firstWhere((user) => user['email'] == email);
+      return user['name'] ?? _backend.getDisplayNameFromEmail(email);
+    } catch (e) {
+      return _backend.getDisplayNameFromEmail(email);
+    }
+  }
+
+  Color _getReasonColor(String reason) {
+    switch (reason.toLowerCase()) {
+      case 'wfh':
+        return Colors.blue[600]!;
+      case 'leave':
+        return Colors.orange[600]!;
+      default:
+        return Colors.grey[600]!;
+    }
+  }
+
+  String _getReasonDisplayText(String reason) {
+    switch (reason.toLowerCase()) {
+      case 'wfh':
+        return 'WFH';
+      case 'leave':
+        return 'Leave';
+      default:
+        return reason.toUpperCase();
+    }
+  }
+
+
+  void _requestSlotFromAvailable(String slotId, DateTime requestDate, List<Map<String, dynamic>> declarations) async {
+    Navigator.pop(context); // Close bottom sheet
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text('Submitting request...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Extract emails from declarations
+      final slotUsersEmails = declarations
+          .map((declaration) => declaration['declaredBy'] as String)
+          .toList();
+
+      // ✅ Use new method
+      final result = await _backend.createSlotRequestForDate(
+        requestDate: requestDate,
+        targetSlotId: slotId,
+        slotUsersEmails: slotUsersEmails,
+      );
+
+      Navigator.of(context).pop(); // Close loading dialog
+
+      if (result['success']) {
+        _backend.showSnackBar(context, result['message']);
+      } else {
+        _backend.showSnackBar(context, result['message'], isError: true);
+      }
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+      _backend.showSnackBar(context, 'Error submitting request: $e', isError: true);
+    }
+  }
+
+
 
 
   List<DateTime> _getNextWorkingDays(int count) {
@@ -1798,6 +3093,9 @@ bool _isLoadingPreferences = false;
           _buildSlotInfoCard(
               slotId, vehicleType, slotPriority, vehicleCompatibility),
           const SizedBox(height: 10),
+
+          _buildSlotRequestsCard(),
+          const SizedBox(height: 16),
           _buildrulesCard(),
           const SizedBox(height: 10),
           _buildParkingUsageCard(),
@@ -2053,171 +3351,6 @@ bool _isLoadingPreferences = false;
   }
 
 
-
-
-
-  void _requestAdminForTodaySlot(String slotId) async {
-    try {
-      // Show loading indicator
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Text('Submitting request...'),
-              ],
-            ),
-          );
-        },
-      );
-
-      // Call the backend method to request today's slot
-      final result = await _backend.requestTodaySlot(slotId);
-
-      // Close loading dialog
-      Navigator.of(context).pop();
-
-      if (result['success']) {
-        // Show success message
-        _backend.showSnackBar(context, result['message'], isError: false);
-
-        // Show success dialog
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('Request Sent'),
-              content: Text('Your request for slot ${slotId.toUpperCase()} has been sent to the admin.'),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    // Refresh the UI to reflect the new request
-                    setState(() {});
-                  },
-                  child: Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-      } else {
-        // Show error message
-        _backend.showSnackBar(context, result['message'], isError: true);
-
-        // Show error dialog
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('Request Failed'),
-              content: Text(result['message']),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-      }
-    } catch (e) {
-      // Close loading dialog if it's still open
-      Navigator.of(context).pop();
-
-      // Show error message
-      _backend.showSnackBar(context, 'Error submitting request: ${e.toString()}', isError: true);
-
-      print('Error requesting admin for today slot: $e');
-    }
-  }
-
-
-  void _requestAdminForAltSlot(String slotId) async {
-    try {
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Text('Submitting request...'),
-              ],
-            ),
-          );
-        },
-      );
-
-      // Call the backend method to request alternative slot
-      final result = await _backend.requestAlternativeSlot(slotId);
-
-      // Close loading dialog
-      Navigator.of(context).pop();
-
-      if (result['success']) {
-        // Show success message
-        _backend.showSnackBar(context, result['message'], isError: false);
-
-        // Show success dialog
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('Request Sent'),
-              content: Text('Your request for an alternative slot has been sent to the admin.'),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    // Refresh the UI to reflect the new request
-                    setState(() {});
-                  },
-                  child: Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-      } else {
-        // Show error message
-        _backend.showSnackBar(context, result['message'], isError: true);
-
-        // Show error dialog
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('Request Failed'),
-              content: Text(result['message']),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-      }
-    } catch (e) {
-      // Close loading dialog if it's still open
-      Navigator.of(context).pop();
-
-      // Show error message
-      _backend.showSnackBar(context, 'Error submitting request: ${e.toString()}', isError: true);
-
-      print('Error requesting admin for alternative slot: $e');
-    }
-  }
 
 
 
@@ -2569,134 +3702,7 @@ bool _isLoadingPreferences = false;
             ],
 
             // Show request buttons if requests are allowed (and auto allotment is not enabled)
-            if (_allowRequests && !_allowAutoAllotment) ...[
 
-              FutureBuilder<Map<String, dynamic>>(
-                future: _backend.getUserRequestsSummary(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Container(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: null,
-                        icon: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                          ),
-                        ),
-                        label: Text(
-                          'Loading...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[300],
-                          foregroundColor: Colors.grey[600],
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          elevation: 2,
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Container(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          _requestAdminForAltSlot(slotId);
-                        },
-                        icon: Icon(
-                          Icons.admin_panel_settings_rounded,
-                          size: 18,
-                        ),
-                        label: Text(
-                          'Request Admin for Alternate Slot',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[600],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          elevation: 2,
-                        ),
-                      ),
-                    );
-                  }
-
-                  final summary = snapshot.data ?? {};
-                  final altRequest = _getRequestByType(summary, 'AltReq');
-
-                  bool hasRecentRequest = false;
-                  String? requestStatus;
-
-                  if (altRequest != null) {
-                    final timestamp = altRequest['timestamp'];
-                    if (timestamp != null) {
-                      DateTime requestDate;
-                      if (timestamp is Timestamp) {
-                        requestDate = timestamp.toDate();
-                      } else {
-                        requestDate = DateTime.now();
-                      }
-                      final today = DateTime.now();
-                      final isSameDay = requestDate.year == today.year &&
-                          requestDate.month == today.month &&
-                          requestDate.day == today.day;
-                      hasRecentRequest = isSameDay;
-                      if (hasRecentRequest) {
-                        requestStatus = altRequest['status'];
-                      }
-                    }
-                  }
-
-                  return SizedBox(
-                    width: double.infinity,
-                    child: hasRecentRequest
-                        ? _buildRequestStatusWidget(requestStatus)
-                        : ElevatedButton.icon(
-                      onPressed: () {
-                        _requestAdminForAltSlot(slotId);
-                      },
-                      icon: Icon(
-                        Icons.admin_panel_settings_rounded,
-                        size: 18,
-                      ),
-                      label: Text(
-                        'Request Admin for Alternate Slot',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[600],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        elevation: 2,
-                      ),
-                    ),
-                  );
-                },
-              )
-            ],
           ],
         ],
       ),
@@ -2956,8 +3962,6 @@ bool _isLoadingPreferences = false;
   }
 
 
-
-// ✅ REPLACE the entire _initializeData method with this:
   Future<void> _initializeData() async {
     // Initialize _userSlotFuture first
     setState(() {
@@ -2967,12 +3971,14 @@ bool _isLoadingPreferences = false;
     // Wait for user slot data
     final userSlot = await _userSlotFuture;
 
-
+    // ✅ ADD: Load requests after user slot is ready
+    await _loadUserSlotRequests();
 
     await _loadBookings();
     await fetchSlotRequest();
   }
-  
+
+
 
   Future<Map<String, dynamic>?> fetchUserSlot() async {
     // Return cached if available and recent
@@ -3211,6 +4217,7 @@ bool _isLoadingPreferences = false;
     });
 
     await _userSlotFuture;
+    await _loadUserSlotRequests();
     await _loadBookings();
     await fetchSlotRequest();
     await _loadPreferencesFromBackend();
@@ -3456,7 +4463,9 @@ bool _isLoadingPreferences = false;
 
   @override
   void dispose() {
-    _toggleSubscription?.cancel(); // Add this line
+    _toggleSubscription?.cancel();
+
+    _requestsSubscription?.cancel();
     super.dispose();
   }
 
