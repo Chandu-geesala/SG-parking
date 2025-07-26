@@ -128,7 +128,8 @@ class BookingBackend {
     }
   }
 
-// ✅ ADD - Single unified cancellation method
+
+  // ✅ UPDATED METHOD: Cancel booking and reset status if needed
   Future<Map<String, dynamic>> cancelBookingForDate({
     required String slotId,
     required String userEmail,
@@ -157,7 +158,7 @@ class BookingBackend {
 
       final dateStr = _formatDateForDocId(date);
 
-      // OPTIMIZATION: Use transaction for atomic cancellation
+      // ✅ UPDATED: Use transaction for atomic cancellation with status update
       final result = await _firestore.runTransaction((transaction) async {
         final slotRef = _firestore
             .collection('Bookings')
@@ -165,20 +166,55 @@ class BookingBackend {
             .collection('BookedToday')
             .doc(slotId);
 
+        // ✅ NEW: Reference to AvailableToday document
+        final availabilityRef = _firestore
+            .collection('Bookings')
+            .doc(dateStr)
+            .collection('AvailableToday')
+            .doc(slotId);
+
+        // Read operations within transaction
         final slotDoc = await transaction.get(slotRef);
+        final availabilityDoc = await transaction.get(availabilityRef);
 
         if (!slotDoc.exists) {
           throw Exception('No booking found for this slot on ${_getDateDisplayName(date)}');
         }
 
-        final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+        final bookingData = slotDoc.data() as Map<String, dynamic>;
+        final bookedBy = bookingData['bookedBy'] as String?;
         if (bookedBy != userEmail) {
           throw Exception('You can only cancel your own booking');
         }
 
-        // Delete within transaction
+        // ✅ NEW: Check if this is an alternative booking
+        final bookingType = bookingData['bookingType'] as String? ?? 'regular';
+        final isAlternativeBooking = bookingType == 'alternative';
+
+        // Delete the booking from BookedToday
         transaction.delete(slotRef);
-        return 'success';
+
+        // ✅ NEW: If it's an alternative booking, reset status in AvailableToday
+        if (isAlternativeBooking && availabilityDoc.exists) {
+          final availabilityData = availabilityDoc.data() as Map<String, dynamic>;
+          final currentStatus = availabilityData['status'] as String? ?? 'notbooked';
+
+          // Only reset if status is currently 'booked' and was booked by this user
+          final bookedByInAvailability = availabilityData['bookedBy'] as String?;
+          if (currentStatus == 'booked' && bookedByInAvailability == userEmail) {
+            transaction.update(availabilityRef, {
+              'status': 'notbooked',
+              'bookedBy': FieldValue.delete(), // Remove bookedBy field
+              'bookedAt': FieldValue.delete(), // Remove bookedAt field
+              'lastUpdated': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+
+        return {
+          'bookingType': bookingType,
+          'wasAlternative': isAlternativeBooking,
+        };
       });
 
       // Fire and forget notification (outside transaction) - only for future dates
@@ -186,9 +222,15 @@ class BookingBackend {
         _notifySlotAvailable(slotId, userEmail);
       }
 
+      // ✅ NEW: Different success messages based on booking type
+      final wasAlternative = result['wasAlternative'] as bool;
+      final successMessage = wasAlternative
+          ? 'Successfully cancelled alternative booking for ${_getDateDisplayName(date)}! Slot is now available for others.'
+          : 'Successfully cancelled booking for ${_getDateDisplayName(date)}!';
+
       return {
         'success': true,
-        'message': 'Successfully cancelled booking for ${_getDateDisplayName(date)}!',
+        'message': successMessage,
       };
 
     } catch (e) {
@@ -488,6 +530,7 @@ class BookingBackend {
               'declarations': [newDeclaration],
               'createdAt': FieldValue.serverTimestamp(),
               'lastUpdated': FieldValue.serverTimestamp(),
+              'status': 'notbooked',
             });
           }
         }
@@ -495,7 +538,9 @@ class BookingBackend {
 
       return {
         'success': true,
-        'message': reason == null ? 'Declaration removed' : 'Declaration saved',
+        'message': reason == null
+            ? 'Thanks for the update! ✅'
+            : 'Thanks for informing us! 🎉',
       };
 
     } catch (e) {
@@ -506,52 +551,64 @@ class BookingBackend {
     }
   }
 
-
-  // ✅ NEW: Get available slots based on declarations for a specific date
   Future<List<Map<String, dynamic>>> getAvailableSlotsFromDeclarations({
     required DateTime date,
-    String? vehicleTypeFilter, // Optional: filter by vehicle type ('CAR', 'BIKE')
+    String? vehicleTypeFilter,
   }) async {
     try {
       final dateStr = _formatDateForDocId(date);
 
-      // Single query to get all availability declarations for the date
-      final availabilityQuery = await _firestore
+      // ✅ OPTIMIZED: Filter at database level to reduce data transfer and costs
+      Query query = _firestore
           .collection('Bookings')
           .doc(dateStr)
           .collection('AvailableToday')
-          .get();
+          .where('status', isEqualTo: 'notbooked'); // ✅ NEW: Only get unbooked slots
+
+      // ✅ OPTIMIZED: Add vehicle type filter at DB level if specified
+      if (vehicleTypeFilter != null) {
+        query = query.where('vehicleType', isEqualTo: vehicleTypeFilter.toUpperCase());
+      }
+
+      final availabilityQuery = await query.get();
 
       List<Map<String, dynamic>> availableSlots = [];
 
       for (var doc in availabilityQuery.docs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         final slotId = data['slotId'] as String;
         final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
         final slotUsers = data['slotUsers'] as int? ?? 0;
         final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+        final status = data['status'] as String? ?? 'notbooked'; // ✅ NEW: Extract status
 
-        // Check if all users declared (declarations count == slotUsers count)
-        final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
+        // ✅ OPTIMIZED: Since we already filtered by status at DB level, just check declarations
+        final hasDeclarations = declarations.isNotEmpty && slotUsers > 0;
+        final isFullyAvailable = declarations.length >= slotUsers && slotUsers > 0;
 
-        if (isFullyDeclared) {
-          // Apply vehicle type filter if specified
-          if (vehicleTypeFilter == null || vehicleType.toUpperCase() == vehicleTypeFilter.toUpperCase()) {
-            availableSlots.add({
-              'slotId': slotId,
-              'vehicleType': vehicleType,
-              'slotUsers': slotUsers,
-              'declarationsCount': declarations.length,
-              'declarations': declarations,
-              'date': dateStr,
-              'isAvailable': true,
-            });
-          }
+        // ✅ OPTIMIZED: Removed status check since we filtered at DB level
+        if (hasDeclarations) {
+          availableSlots.add({
+            'slotId': slotId,
+            'vehicleType': vehicleType,
+            'slotUsers': slotUsers,
+            'declarationsCount': declarations.length,
+            'declarations': declarations,
+            'date': dateStr,
+            'isAvailable': true,
+            'isFullyAvailable': isFullyAvailable,
+            'availabilityScore': isFullyAvailable ? 1 : 0,
+            'status': status, // ✅ NEW: Include status in response
+          });
         }
       }
 
-      // Sort by slot ID for consistent ordering
-      availableSlots.sort((a, b) => a['slotId'].toString().compareTo(b['slotId'].toString()));
+      // ✅ OPTIMIZED: Sort by availability score (fully available first), then by slot ID
+      availableSlots.sort((a, b) {
+        final scoreComparison = (b['availabilityScore'] as int).compareTo(a['availabilityScore'] as int);
+        if (scoreComparison != 0) return scoreComparison;
+        return a['slotId'].toString().compareTo(b['slotId'].toString());
+      });
 
       return availableSlots;
     } catch (e) {
@@ -560,31 +617,43 @@ class BookingBackend {
     }
   }
 
-// ✅ NEW: Get available slots for multiple dates (for dropdown scenarios)
+
+
+
+
+
+
   Future<Map<DateTime, List<Map<String, dynamic>>>> getAvailableSlotsForDates({
     required List<DateTime> dates,
-    String? vehicleTypeFilter, // Optional: filter by vehicle type
+    String? vehicleTypeFilter,
   }) async {
     try {
       Map<DateTime, List<Map<String, dynamic>>> results = {};
 
-      // Create futures for parallel execution
+      // ✅ OPTIMIZED: Create optimized futures with status filter
       List<Future<QuerySnapshot>> futures = [];
       List<DateTime> datesList = [];
 
       for (DateTime date in dates) {
         final dateStr = _formatDateForDocId(date);
         datesList.add(date);
-        futures.add(
-            _firestore
-                .collection('Bookings')
-                .doc(dateStr)
-                .collection('AvailableToday')
-                .get()
-        );
+
+        // ✅ OPTIMIZED: Build query with status filter at DB level
+        Query query = _firestore
+            .collection('Bookings')
+            .doc(dateStr)
+            .collection('AvailableToday')
+            .where('status', isEqualTo: 'notbooked'); // ✅ NEW: Filter by status
+
+        // ✅ OPTIMIZED: Add vehicle type filter if specified
+        if (vehicleTypeFilter != null) {
+          query = query.where('vehicleType', isEqualTo: vehicleTypeFilter.toUpperCase());
+        }
+
+        futures.add(query.get());
       }
 
-      // Execute all reads in parallel
+      // ✅ OPTIMIZED: Execute all reads in parallel
       final queryResults = await Future.wait(futures);
 
       for (int i = 0; i < queryResults.length; i++) {
@@ -599,27 +668,26 @@ class BookingBackend {
           final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
           final slotUsers = data['slotUsers'] as int? ?? 0;
           final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+          final status = data['status'] as String? ?? 'notbooked'; // ✅ NEW: Extract status
 
-          // Check if all users declared (declarations count == slotUsers count)
+          // ✅ OPTIMIZED: Check if all users declared (since status is already filtered)
           final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
 
           if (isFullyDeclared) {
-            // Apply vehicle type filter if specified
-            if (vehicleTypeFilter == null || vehicleType.toUpperCase() == vehicleTypeFilter.toUpperCase()) {
-              availableSlots.add({
-                'slotId': slotId,
-                'vehicleType': vehicleType,
-                'slotUsers': slotUsers,
-                'declarationsCount': declarations.length,
-                'declarations': declarations,
-                'date': _formatDateForDocId(date),
-                'isAvailable': true,
-              });
-            }
+            availableSlots.add({
+              'slotId': slotId,
+              'vehicleType': vehicleType,
+              'slotUsers': slotUsers,
+              'declarationsCount': declarations.length,
+              'declarations': declarations,
+              'date': _formatDateForDocId(date),
+              'isAvailable': true,
+              'status': status, // ✅ NEW: Include status
+            });
           }
         }
 
-        // Sort by slot ID for consistent ordering
+        // ✅ OPTIMIZED: Sort by slot ID for consistent ordering
         availableSlots.sort((a, b) => a['slotId'].toString().compareTo(b['slotId'].toString()));
         results[date] = availableSlots;
       }
@@ -631,7 +699,7 @@ class BookingBackend {
     }
   }
 
-// ✅ NEW: Get available slots summary for a date range (efficient overview)
+
   Future<Map<String, dynamic>> getAvailableSlotsSummary({
     required List<DateTime> dates,
     String? vehicleTypeFilter,
@@ -642,9 +710,9 @@ class BookingBackend {
         vehicleTypeFilter: vehicleTypeFilter,
       );
 
-      // Count total available slots per date
+      // ✅ OPTIMIZED: Single pass calculation
       Map<DateTime, int> availableCountPerDate = {};
-      Map<String, int> slotAvailabilityCount = {}; // How many days each slot is available
+      Map<String, int> slotAvailabilityCount = {};
       Set<String> allAvailableSlots = {};
 
       for (final entry in availableSlotsData.entries) {
@@ -660,7 +728,7 @@ class BookingBackend {
         }
       }
 
-      // Find slots available on all requested dates
+      // ✅ OPTIMIZED: Find slots available on all requested dates
       final fullyAvailableSlots = slotAvailabilityCount.entries
           .where((entry) => entry.value == dates.length)
           .map((entry) => entry.key)
@@ -670,7 +738,7 @@ class BookingBackend {
         'availableSlotsPerDate': availableSlotsData,
         'availableCountPerDate': availableCountPerDate,
         'totalUniqueSlots': allAvailableSlots.length,
-        'fullyAvailableSlots': fullyAvailableSlots, // Available on all dates
+        'fullyAvailableSlots': fullyAvailableSlots,
         'slotAvailabilityCount': slotAvailabilityCount,
         'dateRange': {
           'start': dates.isNotEmpty ? _formatDateForDocId(dates.first) : null,
@@ -684,7 +752,6 @@ class BookingBackend {
     }
   }
 
-// ✅ NEW: Check if a specific slot is available on a date based on declarations
   Future<Map<String, dynamic>> checkSlotAvailabilityFromDeclarations({
     required String slotId,
     required DateTime date,
@@ -705,6 +772,7 @@ class BookingBackend {
           'reason': 'No declarations found for this slot',
           'slotId': slotId,
           'date': dateStr,
+          'status': 'unknown',
         };
       }
 
@@ -712,20 +780,28 @@ class BookingBackend {
       final slotUsers = data['slotUsers'] as int? ?? 0;
       final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
       final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
+      final status = data['status'] as String? ?? 'notbooked'; // ✅ NEW: Extract status
 
       final isFullyDeclared = declarations.length >= slotUsers && slotUsers > 0;
+      final isNotBooked = status == 'notbooked'; // ✅ NEW: Check status
+
+      // ✅ NEW: Only available if fully declared AND not booked
+      final isAvailable = isFullyDeclared && isNotBooked;
 
       return {
-        'isAvailable': isFullyDeclared,
-        'reason': isFullyDeclared
-            ? 'All ${slotUsers} users declared unavailability'
-            : 'Only ${declarations.length} of ${slotUsers} users declared',
+        'isAvailable': isAvailable,
+        'reason': !isFullyDeclared
+            ? 'Only ${declarations.length} of ${slotUsers} users declared'
+            : !isNotBooked
+            ? 'Slot is already booked'
+            : 'All ${slotUsers} users declared unavailability and slot is not booked',
         'slotId': slotId,
         'vehicleType': vehicleType,
         'slotUsers': slotUsers,
         'declarationsCount': declarations.length,
         'declarations': declarations,
         'date': dateStr,
+        'status': status, // ✅ NEW: Include status
       };
     } catch (e) {
       print('Error checking slot availability from declarations: $e');
@@ -733,44 +809,53 @@ class BookingBackend {
         'isAvailable': false,
         'reason': 'Error: ${e.toString()}',
         'slotId': slotId,
+        'status': 'error',
       };
     }
   }
 
-// ✅ NEW: Get available slots with detailed user information
+// ✅ OPTIMIZED: Get available slots with user details and status filter
   Future<List<Map<String, dynamic>>> getAvailableSlotsWithUserDetails({
     required DateTime date,
     String? vehicleTypeFilter,
   }) async {
     try {
+      // ✅ OPTIMIZED: Use the already optimized method
       final availableSlots = await getAvailableSlotsFromDeclarations(
         date: date,
         vehicleTypeFilter: vehicleTypeFilter,
       );
 
-      // For each available slot, get the actual slot details from Slots collection
-      List<Future<DocumentSnapshot>> slotDetailsFutures = [];
-      for (final slot in availableSlots) {
-        slotDetailsFutures.add(
-            _firestore.collection('Slots').doc(slot['slotId']).get()
-        );
+      if (availableSlots.isEmpty) return [];
+
+      // ✅ OPTIMIZED: Batch fetch slot details
+      final slotIds = availableSlots.map((slot) => slot['slotId'] as String).toList();
+
+      // ✅ OPTIMIZED: Single query to get all slot details
+      final slotDetailsQuery = await _firestore
+          .collection('Slots')
+          .where(FieldPath.documentId, whereIn: slotIds)
+          .get();
+
+      // ✅ OPTIMIZED: Create lookup map for O(1) access
+      final slotDetailsMap = <String, Map<String, dynamic>>{};
+      for (var doc in slotDetailsQuery.docs) {
+        slotDetailsMap[doc.id] = doc.data();
       }
 
-      final slotDetailsResults = await Future.wait(slotDetailsFutures);
-
+      // ✅ OPTIMIZED: Single pass to combine data
       List<Map<String, dynamic>> detailedSlots = [];
-      for (int i = 0; i < availableSlots.length; i++) {
-        final slot = availableSlots[i];
-        final slotDoc = slotDetailsResults[i];
+      for (final slot in availableSlots) {
+        final slotId = slot['slotId'] as String;
+        final slotData = slotDetailsMap[slotId];
 
-        if (slotDoc.exists) {
-          final slotData = slotDoc.data() as Map<String, dynamic>;
+        if (slotData != null) {
           final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
 
           detailedSlots.add({
-            ...slot, // Include availability info
-            'slotData': slotData, // Include full slot details
-            'allotedUsers': allotedTo, // Include user details
+            ...slot,
+            'slotData': slotData,
+            'allotedUsers': allotedTo,
             'slotPriority': slotData['slotPriority'] ?? 'permanent',
             'vehicleCompatibility': slotData['VehicleCompatibility'],
           });
@@ -783,6 +868,7 @@ class BookingBackend {
       return [];
     }
   }
+
 
 // ✅ MODIFIED: Add slotUsers count to batchSaveAvailabilityDeclarations
   Future<Map<String, dynamic>> batchSaveAvailabilityDeclarations({
@@ -873,6 +959,7 @@ class BookingBackend {
                 'declarations': [newDeclaration],
                 'createdAt': FieldValue.serverTimestamp(),
                 'lastUpdated': FieldValue.serverTimestamp(),
+                'status': 'notbooked',
               });
             }
             totalOperations++;
@@ -1161,47 +1248,137 @@ class BookingBackend {
   }
 
 
-
-  Future<Map<String, dynamic>> cancelBookingForToday({
-    required String slotId,
+// ✅ UPDATED METHOD: Book an available slot and update status
+  Future<Map<String, dynamic>> bookAvailableSlotForDate({
+    required String targetSlotId,
     required String userEmail,
+    required String userName,
+    required DateTime date,
   }) async {
     try {
-      if (!isBookingWindowOpen()) {
+      // Check if trying to book past dates
+      final yesterday = DateTime.now().subtract(Duration(days: 1));
+      if (date.isBefore(yesterday)) {
         return {
           'success': false,
-          'message': 'Booking window is closed. Please cancel between 8:00 AM - 8:00 PM',
+          'message': 'Cannot book slots for past dates',
         };
       }
 
-      final todayDateStr = _formatDateForDocId(todayDate);
+      final dateStr = _formatDateForDocId(date);
 
-      // OPTIMIZATION: Use transaction
+      // First, verify the slot is actually available from declarations
+      final availabilityCheck = await checkSlotAvailabilityFromDeclarations(
+        slotId: targetSlotId,
+        date: date,
+      );
+
+      if (!availabilityCheck['isAvailable']) {
+        return {
+          'success': false,
+          'message': 'This slot is not available for booking: ${availabilityCheck['reason']}',
+        };
+      }
+
+      // Get user's vehicle type for compatibility check
+      final userSlot = await _getUserAssignedSlot(userEmail);
+      String userVehicleType = 'BIKE'; // default
+      if (userSlot != null) {
+        final slotData = userSlot['slotData'] as Map<String, dynamic>;
+        userVehicleType = slotData['vehicleType'] as String? ?? 'BIKE';
+      }
+
+      // Get target slot vehicle type
+      final targetSlotVehicleType = availabilityCheck['vehicleType'] as String? ?? 'BIKE';
+
+      // Check vehicle compatibility
+      if (userVehicleType.toUpperCase() != targetSlotVehicleType.toUpperCase()) {
+        return {
+          'success': false,
+          'message': 'Vehicle type mismatch. Your vehicle ($userVehicleType) is not compatible with this ${targetSlotVehicleType} slot.',
+        };
+      }
+
       final result = await _firestore.runTransaction((transaction) async {
+        // ✅ NEW: References for both BookedToday and AvailableToday
         final slotRef = _firestore
             .collection('Bookings')
-            .doc(todayDateStr)
+            .doc(dateStr)
             .collection('BookedToday')
-            .doc(slotId);
+            .doc(targetSlotId);
 
+        final availabilityRef = _firestore
+            .collection('Bookings')
+            .doc(dateStr)
+            .collection('AvailableToday')
+            .doc(targetSlotId);
+
+        // Read operations within transaction
         final slotDoc = await transaction.get(slotRef);
+        final availabilityDoc = await transaction.get(availabilityRef);
 
-        if (!slotDoc.exists) {
-          throw Exception('No booking found for this slot today');
+        // Check if slot is already booked by someone else
+        if (slotDoc.exists) {
+          final bookedBy = slotDoc.data()?['bookedBy'] as String?;
+          if (bookedBy == userEmail) {
+            throw Exception('You have already booked this slot for ${_getDateDisplayName(date)}');
+          } else {
+            throw Exception('This slot has been booked by another user for ${_getDateDisplayName(date)}');
+          }
         }
 
-        final bookedBy = slotDoc.data()?['bookedBy'] as String?;
-        if (bookedBy != userEmail) {
-          throw Exception('You can only cancel your own booking');
+        // ✅ NEW: Double-check availability status within transaction
+        if (availabilityDoc.exists) {
+          final availabilityData = availabilityDoc.data() as Map<String, dynamic>;
+          final currentStatus = availabilityData['status'] as String? ?? 'notbooked';
+
+          if (currentStatus != 'notbooked') {
+            throw Exception('This slot is no longer available (status: $currentStatus)');
+          }
         }
 
-        transaction.delete(slotRef);
+        // Check if user has already booked any other slot for this date
+        final userBookingsRef = _firestore
+            .collection('Bookings')
+            .doc(dateStr)
+            .collection('BookedToday')
+            .where('bookedBy', isEqualTo: userEmail);
+
+        final userBookings = await userBookingsRef.limit(1).get();
+        if (userBookings.docs.isNotEmpty) {
+          final bookedSlotId = userBookings.docs.first.id;
+          final bookedSlotData = userBookings.docs.first.data();
+          throw Exception('already_booked_other:$bookedSlotId:${bookedSlotData['userName'] ?? 'You'}');
+        }
+
+        // ✅ NEW: Create the booking in BookedToday
+        transaction.set(slotRef, {
+          'bookedBy': userEmail,
+          'bookedAt': FieldValue.serverTimestamp(),
+          'userName': userName,
+          'vehicleType': userVehicleType,
+          'bookingDate': dateStr,
+          'slotId': targetSlotId,
+          'bookingType': 'alternative', // Mark as alternative booking
+          'originalSlotOwners': availabilityCheck['declarations'], // Store who declared unavailability
+        });
+
+        // ✅ NEW: Update status in AvailableToday to 'booked'
+        if (availabilityDoc.exists) {
+          transaction.update(availabilityRef, {
+            'status': 'booked',
+            'bookedBy': userEmail,
+            'bookedAt': FieldValue.serverTimestamp(),
+            'lastUpdated': FieldValue.serverTimestamp(),
+          });
+        }
+
         return 'success';
       });
 
       return {
         'success': true,
-        'message': 'Successfully cancelled today\'s booking!',
+        'message': 'Successfully booked slot $targetSlotId for ${_getDateDisplayName(date)}!',
       };
 
     } catch (e) {
@@ -1211,6 +1388,47 @@ class BookingBackend {
       };
     }
   }
+
+
+// ✅ NEW METHOD: Get user's booked slot details for a specific date
+  Future<Map<String, dynamic>?> getUserBookedSlotForDate({
+    required String userEmail,
+    required DateTime date,
+  }) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
+
+      final userBookingsQuery = await _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('BookedToday')
+          .where('bookedBy', isEqualTo: userEmail)
+          .limit(1)
+          .get();
+
+      if (userBookingsQuery.docs.isNotEmpty) {
+        final bookingDoc = userBookingsQuery.docs.first;
+        final bookingData = bookingDoc.data();
+
+        return {
+          'slotId': bookingDoc.id,
+          'bookingData': bookingData,
+          'bookedBy': bookingData['bookedBy'],
+          'userName': bookingData['userName'],
+          'vehicleType': bookingData['vehicleType'],
+          'bookingType': bookingData['bookingType'] ?? 'regular',
+          'exists': true,
+        };
+      }
+
+      return null;
+    } catch (e) {
+      print('Error getting user booked slot for date: $e');
+      return null;
+    }
+  }
+
+
 
 
 

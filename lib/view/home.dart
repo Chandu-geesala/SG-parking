@@ -228,72 +228,57 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+// Replace the _buildWelcomeSection method with this minimal design:
+
   Widget _buildWelcomeSection(String userName) {
     final isLargeScreen = _isLargeScreen(context);
 
+    // Random welcome messages
+    final welcomeMessages = [
+      "Hi $userName",
+      "Welcome $userName",
+      "Hello $userName",
+      "$userName is here",
+      "Good to see you $userName",
+      "Back again $userName",
+    ];
+
+    // Pick random message (you can also use time-based or other logic)
+    final randomMessage = welcomeMessages[DateTime.now().millisecond % welcomeMessages.length];
+
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(isLargeScreen ? 28 : 20),
+      margin: EdgeInsets.only(top: isLargeScreen ? 8 : 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: isLargeScreen ? 32 : 20,
+        vertical: isLargeScreen ? 24 : 20,
+      ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.primary.withOpacity(0.8),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(isLargeScreen ? 32 : 28),
+          bottomRight: Radius.circular(isLargeScreen ? 32 : 28),
         ),
-        borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 20),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-            blurRadius: isLargeScreen ? 16 : 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Row(
         children: [
-          Container(
-            padding: EdgeInsets.all(isLargeScreen ? 16 : 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(isLargeScreen ? 20 : 16),
-            ),
-            child: Icon(
-              Icons.person_rounded,
-              color: Theme.of(context).colorScheme.onPrimary,
-              size: isLargeScreen ? 36 : 28,
-            ),
-          ),
-          SizedBox(width: isLargeScreen ? 20 : 16),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Welcome back,',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.8),
-                    fontSize: isLargeScreen ? 18 : 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  userName,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    fontSize: isLargeScreen ? 28 : 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            child: Text(
+              randomMessage,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isLargeScreen ? 26 : 22,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
+
         ],
       ),
     );
   }
+
+
 
   Widget _buildNoSlotAssignedCard() {
     final isLargeScreen = _isLargeScreen(context);
@@ -471,3 +456,5 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 }
+
+

@@ -7,11 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:park_sg/utils/slot_allotment_card.dart';
+
 
 
 import '../viewModel/bookingBackend.dart';
-import 'package:park_sg/utils/theme_provider.dart';
+
 
 enum BookingStatus {
   available,
@@ -30,11 +30,37 @@ class BookingCards extends StatefulWidget {
 }
 
 class _BookingCardsState extends State<BookingCards> {
-// ✅ REPLACE with this
+
   Future<Map<String, dynamic>?> _userSlotFuture = Future.value(null);
 
   final BookingBackend _backend = BookingBackend();
   bool _isLoadingTodayBooking = false;
+
+
+  Map<DateTime, Map<String, dynamic>> _weeklySlotData = {};
+  bool _isLoadingWeeklyData = false;
+
+  static const List<String> _dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const List<String> _monthNames = [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  // ✅ ADD these helper methods after the constants
+  String _getDayName(DateTime date) => _dayNames[date.weekday];
+  String _getMonthName(DateTime date) => _monthNames[date.month];
+
+  // ✅ Helper method for formatted date string
+  String _getFormattedDateString(DateTime date) {
+    return '${_getDayName(date)}, ${_getMonthName(date)} ${date.day}';
+  }
+
+  // ✅ Helper method for full date string with year
+  String _getFullDateString(DateTime date) {
+    return '${_getMonthName(date)} ${date.day}, ${date.year}';
+  }
+
+
 
 
   Map<DateTime, Map<String, dynamic>> _bookingStatuses = {};
@@ -42,15 +68,10 @@ class _BookingCardsState extends State<BookingCards> {
   Set<DateTime> _unavailableDates = {};
 
   Map<DateTime, String> _datePreferences = {}; // 'use', 'leave', 'wfh'
-  DateTime? _selectedDateForOptions;
+
 
 
   // Add these state variables after existing ones
-
-
-  Map<String, List<Map<String, dynamic>>> _userSlotRequests = {};
-  bool _isLoadingRequests = false;
-  StreamSubscription<QuerySnapshot>? _requestsSubscription;
 
 
 
@@ -59,14 +80,10 @@ class _BookingCardsState extends State<BookingCards> {
   // Booking state variables
   Map<String, dynamic>? _todaysBooking;
 
-  bool _isLoadingBookings = false;
-// Add these new state variables after existing ones
-  bool _allowRequests = false;
-  bool _allowAutoAllotment = false;
-  StreamSubscription<DocumentSnapshot>? _toggleSubscription;
-  bool _isLoadingToggles = false;
- bool _isUpdatingPreferences = false;
-bool _isLoadingPreferences = false;
+
+
+  bool _isUpdatingPreferences = false;
+  bool _isLoadingPreferences = false;
   Map<String, dynamic>? _cachedUserSlot;
 
 
@@ -90,541 +107,6 @@ bool _isLoadingPreferences = false;
   }
 
 
-  Future<void> _loadUserSlotRequests() async {
-    print('🔍 _loadUserSlotRequests() called - mounted: $mounted');
-
-    if (!mounted) return;
-
-    setState(() {
-      _isLoadingRequests = true;
-    });
-    print('📱 Set _isLoadingRequests = true');
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      final userSlot = await _userSlotFuture;
-
-      print('👤 User: ${user?.email}');
-      print('🅿️ User slot: $userSlot');
-
-      if (user != null && userSlot != null) {
-        final slotId = userSlot['slotId'] as String;
-        final userEmail = user.email!;
-
-        print('🎯 Looking for requests for slot: $slotId, user: $userEmail');
-
-        // Get current date and next 5 working days
-        final workingDays = _getNextWorkingDays(5);
-        print('📅 Working days: ${workingDays.map((d) => DateFormat('yyyy-MM-dd').format(d)).toList()}');
-
-        // Query requests for user's slot for these dates
-        List<Future<QuerySnapshot>> futures = [];
-
-        for (DateTime date in workingDays) {
-          final dateStr = DateFormat('yyyy-MM-dd').format(date);
-          print('🔍 Adding query for date: $dateStr');
-          futures.add(
-              FirebaseFirestore.instance
-                  .collection('requests')
-                  .doc(dateStr)
-                  .collection('slots')
-                  .where('slotId', isEqualTo: slotId)
-                  .where('status.finalStatus', isEqualTo: 'pending') // Still filter by pending
-                  .get()
-          );
-        }
-
-        print('⏳ Executing ${futures.length} parallel queries...');
-        final results = await Future.wait(futures);
-        Map<String, List<Map<String, dynamic>>> requestsByDate = {};
-
-        for (int i = 0; i < results.length; i++) {
-          final dateStr = DateFormat('yyyy-MM-dd').format(workingDays[i]);
-          final querySnapshot = results[i];
-
-          print('📊 Date $dateStr: Found ${querySnapshot.docs.length} documents');
-
-          List<Map<String, dynamic>> dayRequests = [];
-          for (var doc in querySnapshot.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            print('📄 Document ${doc.id}: $data');
-
-            // Check if current user is one of the requested users
-            final requestedTo = data['requestedTo'] as Map<String, dynamic>? ?? {};
-            print('🎯 RequestedTo: $requestedTo');
-            print('🔍 User email in requestedTo: ${requestedTo.containsKey(userEmail)}');
-
-            if (requestedTo.containsKey(userEmail)) {
-              // ✅ NEW: Check if current user has already responded
-              final userRequestData = requestedTo[userEmail] as Map<String, dynamic>? ?? {};
-              final hasUserResponded = userRequestData['responded'] == true;
-
-              print('👤 User request data: $userRequestData');
-              print('✅ Has user responded: $hasUserResponded');
-
-              // ✅ ONLY show request if user hasn't responded yet
-              if (!hasUserResponded) {
-                print('✅ Found request for user that needs response!');
-                dayRequests.add({
-                  ...data,
-                  'requestId': doc.id,
-                  'dateStr': dateStr,
-                  'date': workingDays[i],
-                });
-              } else {
-                print('⏭️ User already responded, skipping request');
-              }
-            } else {
-              print('❌ Request not for this user');
-            }
-          }
-
-          if (dayRequests.isNotEmpty) {
-            requestsByDate[dateStr] = dayRequests;
-            print('📝 Added ${dayRequests.length} requests for $dateStr');
-          }
-        }
-
-        print('🎉 Total requests by date: $requestsByDate');
-
-        if (mounted) {
-          setState(() {
-            _userSlotRequests = requestsByDate;
-          });
-          print('✅ Updated state with ${requestsByDate.length} dates having requests');
-        }
-      } else {
-        print('❌ User or userSlot is null');
-      }
-    } catch (e) {
-      print('❌ Error loading user slot requests: $e');
-      print('📍 Stack trace: ${StackTrace.current}');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingRequests = false;
-        });
-        print('📱 Set _isLoadingRequests = false');
-      }
-    }
-  }
-
-
-  // Add this method to handle accept/reject responses
-  Future<void> _respondToSlotRequest(
-      String requestId,
-      String dateStr,
-      bool isAccepted,
-      String slotId,
-      ) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final userEmail = user.email!;
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Row(
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 20),
-              Text(isAccepted ? 'Accepting request...' : 'Rejecting request...'),
-            ],
-          ),
-        ),
-      );
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final requestRef = FirebaseFirestore.instance
-            .collection('requests')
-            .doc(dateStr)
-            .collection('slots')
-            .doc(requestId);
-
-        final requestDoc = await transaction.get(requestRef);
-        if (!requestDoc.exists) {
-          throw Exception('Request not found');
-        }
-
-        final data = requestDoc.data()!;
-        final status = Map<String, dynamic>.from(data['status'] ?? {});
-        final requestedTo = Map<String, dynamic>.from(data['requestedTo'] ?? {});
-
-        if (isAccepted) {
-          status['acceptedBy'] = {
-            ...Map<String, dynamic>.from(status['acceptedBy'] ?? {}),
-            userEmail: FieldValue.serverTimestamp(),
-          };
-        } else {
-          status['rejectedBy'] = {
-            ...Map<String, dynamic>.from(status['rejectedBy'] ?? {}),
-            userEmail: FieldValue.serverTimestamp(),
-          };
-        }
-
-        // Update user's response in requestedTo
-        if (requestedTo.containsKey(userEmail)) {
-          requestedTo[userEmail]['responded'] = true;
-          requestedTo[userEmail]['response'] = isAccepted ? 'accepted' : 'rejected';
-          requestedTo[userEmail]['respondedAt'] = FieldValue.serverTimestamp();
-        }
-
-        // Check if all users have responded
-        final totalUsers = data['metadata']['totalSlotUsers'] as int;
-        final acceptedCount = (status['acceptedBy'] as Map? ?? {}).length;
-        final rejectedCount = (status['rejectedBy'] as Map? ?? {}).length;
-
-        if (acceptedCount == totalUsers) {
-          status['finalStatus'] = 'approved';
-        } else if (rejectedCount > 0) {
-          status['finalStatus'] = 'rejected';
-        }
-
-        status['lastUpdated'] = FieldValue.serverTimestamp();
-
-        transaction.update(requestRef, {
-          'status': status,
-          'requestedTo': requestedTo,
-        });
-      });
-
-      Navigator.of(context).pop(); // Close loading dialog
-
-      _backend.showSnackBar(
-        context,
-        isAccepted ? 'Request accepted successfully!' : 'Request rejected successfully!',
-      );
-
-      // Refresh requests
-      await _loadUserSlotRequests();
-
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
-      _backend.showSnackBar(
-        context,
-        'Error responding to request: $e',
-        isError: true,
-      );
-    }
-  }
-
-
-
-
-
-// Add this widget to display slot requests
-  Widget _buildSlotRequestsCard() {
-    if (_isLoadingRequests) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardTheme.color,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Theme.of(context).cardTheme.shadowColor ??
-                  (Theme.of(context).brightness == Brightness.dark
-                      ? Colors.black.withOpacity(0.3)
-                      : Colors.grey.withOpacity(0.1)),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text(
-              'Loading slot requests...',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_userSlotRequests.isEmpty) {
-      return SizedBox.shrink(); // Don't show card if no requests
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).cardTheme.shadowColor ??
-                (Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.1)),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.notifications_active,
-                  color: Colors.orange[600],
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Slot Requests',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ) ?? TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Pending requests for your slot',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.orange[100],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${_userSlotRequests.values.fold(0, (sum, list) => sum + list.length)}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange[800],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Requests List
-          ...(_userSlotRequests.entries.map((entry) {
-            final dateStr = entry.key;
-            final requests = entry.value;
-            return Column(
-              children: requests.map((request) => _buildRequestTile(request, dateStr)).toList(),
-            );
-          }).toList()),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRequestTile(Map<String, dynamic> request, String dateStr) {
-    final requestedBy = request['requestedBy'] as String;
-    final slotId = request['slotId'] as String;
-    final requestId = request['requestId'] as String;
-    final date = request['date'] as DateTime;
-    final requesterVehicleType = request['metadata']?['requesterVehicleType'] as String? ?? 'UNKNOWN';
-
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    final requesterName = _backend.getDisplayNameFromEmail(requestedBy);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? Colors.grey[800]?.withOpacity(0.5)
-            : Colors.orange[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.orange.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Row
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.person_outline,
-                  color: Colors.orange[600],
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      requesterName,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    Text(
-                      'wants to use your slot',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _getVehicleColor(requesterVehicleType).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _getVehicleIcon(requesterVehicleType),
-                      size: 12,
-                      color: _getVehicleColor(requesterVehicleType),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      requesterVehicleType,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: _getVehicleColor(requesterVehicleType),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // Request Details
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.calendar_today,
-                  size: 16,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Slot: ${slotId.toUpperCase()}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => _respondToSlotRequest(requestId, dateStr, false, slotId),
-                  icon: Icon(Icons.close, size: 18),
-                  label: Text('Reject'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red[600],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => _respondToSlotRequest(requestId, dateStr, true, slotId),
-                  icon: Icon(Icons.check, size: 18),
-                  label: Text('Accept'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green[600],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-
-
-
   @override
   void initState() {
     super.initState();
@@ -633,12 +115,30 @@ bool _isLoadingPreferences = false;
     final today = DateTime.now();
     _selectedBookingDate = DateTime(today.year, today.month, today.day);
 
-    _initializeData();
+    _initializeDataUpdated();
     _loadPreferencesFromBackend();
   }
 
 
 
+
+  Future<void> _initializeDataUpdated() async {
+    // Initialize _userSlotFuture first
+    setState(() {
+      _userSlotFuture = fetchUserSlot();
+    });
+
+    // Wait for user slot data
+    final userSlot = await _userSlotFuture;
+
+    // Load all data in parallel
+    await Future.wait([
+      _loadBookings(),
+      fetchSlotRequest(),
+      _loadPreferencesFromBackend(),
+      _loadWeeklySlotData(), // ✅ NEW: Load weekly slot data
+    ]);
+  }
 
 
 
@@ -679,17 +179,9 @@ bool _isLoadingPreferences = false;
   }
 
 
-  void _toggleDateAvailability(DateTime date) {
-    setState(() {
-      _selectedDateForOptions = date;
-    });
-    _showPreferenceOptions(date);
-  }
+
 
   void _showPreferenceOptions(DateTime date) {
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     final currentPreference = _datePreferences[date];
 
@@ -721,7 +213,7 @@ bool _isLoadingPreferences = false;
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}',
+                        _getFormattedDateString(date),
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -776,6 +268,1024 @@ bool _isLoadingPreferences = false;
       ),
     );
   }
+
+
+  Widget _buildCombinedWeeklyParkingCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).cardTheme.shadowColor ??
+                (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.1)),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.calendar_month_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Let us know when you won\'t need parking ',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
+                  ),
+                ),
+              ),
+
+            ],
+
+          ),
+          const SizedBox(height: 20),
+
+          // Weekly Calendar with combined functionality
+          _buildCombinedWeeklyCalendar(),
+
+          const SizedBox(height: 16),
+
+          // Legend
+          _buildCombinedLegend(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCombinedLegend() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[800]!.withOpacity(0.5)
+            : Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildLegendItem(Icons.add_circle_outline, 'Available', Colors.blue[600]!),
+          _buildLegendItem(Icons.check_circle, 'Booked', Colors.green[600]!),
+          _buildLegendItem(Icons.block, 'Unavailable', Colors.red[600]!),
+          _buildLegendItem(Icons.beach_access, 'Leave/WFH', Colors.orange[600]!),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCombinedDayTile(DateTime date) {
+    final isToday = DateUtils.isSameDay(date, DateTime.now());
+    final isPast = date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+
+    // Check user declaration first
+    final hasUserDeclaration = _datePreferences.containsKey(date);
+
+    // Get slot status
+    final slotData = _weeklySlotData[date];
+    final isSlotBooked = slotData?['isBooked'] == true;
+    final isBookedByCurrentUser = slotData?['isBookedByCurrentUser'] == true;
+
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      child: InkWell(
+        onTap: isPast ? null : () {
+          _showCombinedOptionsSheet(date);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          decoration: BoxDecoration(
+            color: _getCombinedDayTileColor(
+                isToday,
+                hasUserDeclaration,
+                isSlotBooked,
+                isBookedByCurrentUser,
+                isPast
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _getCombinedDayTileBorderColor(
+                  isToday,
+                  hasUserDeclaration,
+                  isSlotBooked,
+                  isBookedByCurrentUser,
+                  isPast
+              ),
+              width: isToday ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _getDayName(date),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _getCombinedDayTileTextColor(
+                      isToday,
+                      hasUserDeclaration,
+                      isSlotBooked,
+                      isBookedByCurrentUser,
+                      isPast
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${date.day}',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _getCombinedDayTileTextColor(
+                      isToday,
+                      hasUserDeclaration,
+                      isSlotBooked,
+                      isBookedByCurrentUser,
+                      isPast
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _getMonthName(date),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: _getCombinedDayTileTextColor(
+                      isToday,
+                      hasUserDeclaration,
+                      isSlotBooked,
+                      isBookedByCurrentUser,
+                      isPast
+                  ).withOpacity(0.8),
+                ),
+              ),
+              const SizedBox(height: 4),
+
+              // Status icon
+              _getCombinedStatusIcon(
+                  hasUserDeclaration,
+                  isSlotBooked,
+                  isBookedByCurrentUser,
+                  isPast,
+                  date
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
+  Widget _buildCombinedWeeklyCalendar() {
+    final workingDays = _getNextWorkingDays(5);
+
+    return Column(
+      children: [
+        // Desktop/Tablet Layout - Single row for 5 working days
+        if (MediaQuery.of(context).size.width > 600) ...[
+          Row(
+            children: workingDays.map((date) =>
+                Expanded(child: _buildCombinedDayTile(date))
+            ).toList(),
+          ),
+        ] else ...[
+          // Mobile Layout - 2 rows (3 + 2)
+          Column(
+            children: [
+              Row(
+                children: workingDays.take(3).map((date) =>
+                    Expanded(child: _buildCombinedDayTile(date))
+                ).toList(),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ...workingDays.skip(3).map((date) =>
+                      Expanded(child: _buildCombinedDayTile(date))
+                  ).toList(),
+                  // Fill remaining space to center the 2 items
+                  if (workingDays.length > 3)
+                    Expanded(child: Container()),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+
+  void _showCombinedOptionsSheet(DateTime date) {
+    // Check current status
+    final hasUserDeclaration = _datePreferences.containsKey(date);
+    final slotData = _weeklySlotData[date];
+    final isSlotBooked = slotData?['isBooked'] == true;
+    final isBookedByCurrentUser = slotData?['isBookedByCurrentUser'] == true;
+    final bookedSlotId = slotData?['bookedSlotId'] as String?;
+    final bookingType = slotData?['bookingType'] as String? ?? 'regular';
+
+    // ✅ NEW: Check if assigned slot is booked by others
+    final assignedSlotBookedByOther = slotData?['assignedSlotBookedByOther'] == true;
+
+    // ✅ FIX: Determine slot availability status for UI logic
+    final isSlotAvailable = !isSlotBooked; // Blue state - slot is available
+    final isSlotUnavailable = assignedSlotBookedByOther; // Red state - slot booked by others
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                Icon(
+                  Icons.calendar_today,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _getFormattedDateString(date),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        _getCombinedHeaderSubtitle(hasUserDeclaration, isSlotBooked, isBookedByCurrentUser, bookedSlotId, bookingType, assignedSlotBookedByOther),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Options based on current status
+            if (hasUserDeclaration) ...[
+              // User has declared unavailability
+              _buildCurrentDeclarationCard(date),
+              const SizedBox(height: 16),
+              _buildRemoveDeclarationOption(date),
+            ] else if (isBookedByCurrentUser) ...[
+              // User has booked some slot
+              _buildUserBookedAnySlotCard(date, bookedSlotId, bookingType),
+              const SizedBox(height: 16),
+              _buildCancelBookingOption(date),
+              const SizedBox(height: 12),
+              _buildViewBookingDetailsOption(date),
+            ] else if (isSlotUnavailable) ...[
+              // ✅ FIXED: User's assigned slot is booked by others (RED state)
+              // Only show "See Available Slots" - no leave/WFH options
+              _buildSlotBookedByOthersCard(date),
+              const SizedBox(height: 16),
+              _buildSeeAvailableSlotsOption(date),
+            ] else if (isSlotAvailable) ...[
+              // ✅ FIXED: Slot is available (BLUE state)
+              // Show book slot and leave/WFH options - no "See Available Slots"
+              _buildBookSlotOption(date),
+              const SizedBox(height: 12),
+              _buildPreferenceOption(date, 'leave', 'On Leave', 'I will be on leave this day', Icons.beach_access, Colors.orange),
+              const SizedBox(height: 12),
+              _buildPreferenceOption(date, 'wfh', 'Work From Home', 'I will be working from home', Icons.home_work, Colors.blue),
+            ] else ...[
+              // ✅ FALLBACK: Default case for any other state
+              _buildBookSlotOption(date),
+              const SizedBox(height: 12),
+              _buildSeeAvailableSlotsOption(date),
+              const SizedBox(height: 12),
+              _buildPreferenceOption(date, 'leave', 'On Leave', 'I will be on leave this day', Icons.beach_access, Colors.orange),
+              const SizedBox(width: 12),
+              _buildPreferenceOption(date, 'wfh', 'Work From Home', 'I will be working from home', Icons.home_work, Colors.blue),
+            ],
+
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+// ✅ UPDATED: Header subtitle method with unavailable status
+  String _getCombinedHeaderSubtitle(bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, String? bookedSlotId, String bookingType, bool assignedSlotBookedByOther) {
+    if (hasDeclaration) return 'You have marked unavailability';
+    if (isBookedByUser) {
+      if (bookingType == 'alternative') {
+        return 'You booked alternative slot ${bookedSlotId?.toUpperCase() ?? ''}';
+      } else {
+        return 'You have booked slot ${bookedSlotId?.toUpperCase() ?? ''}';
+      }
+    }
+    if (assignedSlotBookedByOther) {
+      return 'Your assigned slot is booked by another user';
+    }
+    return 'Available - Choose an option';
+  }
+
+// ✅ NEW: Method for any slot booking card
+  Widget _buildUserBookedAnySlotCard(DateTime date, String? slotId, String bookingType) {
+    final isAlternative = bookingType == 'alternative';
+    final color = isAlternative ? Colors.purple[600]! : Colors.green[600]!;
+    final bgColor = isAlternative ? Colors.purple[50]! : Colors.green[50]!;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isAlternative ? Icons.swap_horiz : Icons.check_circle,
+              color: color,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isAlternative ? 'Alternative Slot Booked' : 'Slot Booked by You',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+                if (slotId != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Slot ${slotId.toUpperCase()}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: color.withOpacity(0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ NEW: View booking details option
+  Widget _buildViewBookingDetailsOption(DateTime date) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        _showMyBookedSlotDetails(date);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.blue[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blue[300]!, width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.info_outline, color: Colors.blue[600], size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'View Booking Details',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'See complete booking information',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+  Widget _buildRemoveDeclarationOption(DateTime date) {
+    return InkWell(
+      onTap: () async {
+        Navigator.pop(context);
+        await _removeUserDeclaration(date);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[300]!, width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.delete_outline, color: Colors.grey[600], size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Remove Marking',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Remove your unavailability Marking',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildCancelBookingOption(DateTime date) {
+    return InkWell(
+      onTap: () async {
+        Navigator.pop(context);
+        await _cancelBookingForDate(date);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red[300]!, width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.cancel, color: Colors.red[600], size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cancel Booking',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red[700],
+                    ),
+                  ),
+
+                ],
+              ),
+            ),
+
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Future<void> _updateWeeklyCacheForDate(DateTime date, {
+    required bool isBooked,
+    required bool isBookedByCurrentUser,
+    String? bookedSlotId,
+    String? bookingType,
+    bool? assignedSlotBookedByOther,
+  }) async {
+    setState(() {
+      _weeklySlotData[date] = {
+        'isBooked': isBooked,
+        'isBookedByCurrentUser': isBookedByCurrentUser,
+        'bookedSlotId': bookedSlotId,
+        'bookingType': bookingType ?? 'regular',
+        'assignedSlotBookedByOther': assignedSlotBookedByOther ?? false,
+      };
+    });
+  }
+
+
+  Future<void> _removeUserDeclaration(DateTime date) async {
+    setState(() {
+      _isUpdatingPreferences = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final result = await _backend.updateUserAvailabilityDeclaration(
+          date: date,
+          userEmail: user.email!,
+          reason: null,
+        );
+
+        if (result['success']) {
+          setState(() {
+            _datePreferences.remove(date);
+            _unavailableDates.remove(date);
+          });
+
+          // ✅ IMMEDIATE: Clear weekly cache for this date
+          _weeklySlotData.remove(date);
+
+          // ✅ REFRESH: Reload actual slot status
+          await _loadSingleDateSlotStatus(date);
+
+          _backend.showSnackBar(context, result['message']);
+        } else {
+          _backend.showSnackBar(context, result['message'], isError: true);
+        }
+      }
+    } catch (e) {
+      _backend.showSnackBar(context, 'Error removing declaration: $e', isError: true);
+    } finally {
+      setState(() {
+        _isUpdatingPreferences = false;
+      });
+    }
+  }
+
+  Future<void> _quickRefreshWeeklyData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final userSlot = await _userSlotFuture;
+
+    if (user?.email != null && userSlot != null) {
+      final userEmail = user!.email!;
+      final assignedSlotId = userSlot['slotId'] as String?;
+
+      if (assignedSlotId == null) return;
+
+      final workingDays = _getNextWorkingDays(5);
+
+      try {
+        // Quick parallel refresh for visible days only
+        final futures = workingDays.map((date) async {
+          try {
+            final userBooking = await _backend.getUserBookedSlotForDate(
+              userEmail: userEmail,
+              date: date,
+            );
+
+            final assignedSlotStatus = await _backend.getBookingStatusForDate(
+              slotId: assignedSlotId,
+              userEmail: userEmail,
+              date: date,
+            );
+
+            return MapEntry(date, {
+              'userBooking': userBooking,
+              'assignedSlotStatus': assignedSlotStatus,
+            });
+          } catch (e) {
+            print('Error refreshing data for $date: $e');
+            return MapEntry(date, {
+              'userBooking': null,
+              'assignedSlotStatus': <String, dynamic>{},
+            });
+          }
+        });
+
+        final results = await Future.wait(futures);
+
+        if (mounted) {
+          setState(() {
+            for (final entry in results) {
+              final date = entry.key;
+              final data = entry.value as Map<String, dynamic>;
+              final userBooking = data['userBooking'] as Map<String, dynamic>?;
+              final assignedSlotStatus = data['assignedSlotStatus'] as Map<String, dynamic>? ?? {};
+
+              bool isBooked = false;
+              bool isBookedByCurrentUser = false;
+              String? bookedSlotId;
+              String bookingType = 'regular';
+
+              if (userBooking != null) {
+                isBooked = true;
+                isBookedByCurrentUser = true;
+                bookedSlotId = userBooking['slotId'] as String?;
+                final bookingData = userBooking['bookingData'] as Map<String, dynamic>?;
+                bookingType = bookingData?['bookingType'] as String? ?? 'regular';
+              } else if (assignedSlotStatus['exists'] == true) {
+                isBooked = true;
+                isBookedByCurrentUser = false;
+                bookedSlotId = assignedSlotId;
+                bookingType = 'unavailable';
+              }
+
+              _weeklySlotData[date] = {
+                'isBooked': isBooked,
+                'isBookedByCurrentUser': isBookedByCurrentUser,
+                'bookedSlotId': bookedSlotId,
+                'bookingType': bookingType,
+                'assignedSlotBookedByOther': assignedSlotStatus['exists'] == true && !isBookedByCurrentUser,
+              };
+            }
+          });
+        }
+      } catch (e) {
+        print('Error in _quickRefreshWeeklyData: $e');
+      }
+    }
+  }
+
+
+
+  Future<void> _loadSingleDateSlotStatus(DateTime date) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final userSlot = await _userSlotFuture;
+
+      if (user != null && userSlot != null) {
+        final slotId = userSlot['slotId'] as String;
+
+        final result = await _backend.getBookingStatusForDate(
+          slotId: slotId,
+          userEmail: user.email!,
+          date: date,
+        );
+
+        if (mounted) {
+          setState(() {
+            _weeklySlotData[date] = {
+              'isBooked': result['exists'] == true,
+              'isBookedByCurrentUser': result['isBookedByCurrentUser'] == true,
+            };
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading single date slot status: $e');
+    }
+  }
+
+
+
+
+  Widget _buildUserBookedSlotCard(DateTime date) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green[300]!, width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green[100],
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.check_circle, color: Colors.green[600], size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Slot Booked by You',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green[700],
+                  ),
+                ),
+
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeeAvailableSlotsOption(DateTime date) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        _showAvailableSlotsBottomSheet(date);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.blue[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blue[300]!, width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.search, color: Colors.blue[600], size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'See Available Slots',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Find and request other available slots',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+  Widget _buildSlotBookedByOthersCard(DateTime date) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red[300]!, width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red[100],
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.block, color: Colors.red[600], size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Slot Booked by Others',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.red[700],
+                  ),
+                ),
+
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildCurrentDeclarationCard(DateTime date) {
+    final preference = _datePreferences[date];
+    String title = '';
+    String subtitle = '';
+    IconData icon = Icons.info_outline;
+    Color color = Colors.grey[600]!;
+
+    switch (preference) {
+      case 'leave':
+        title = 'You Marked Leave';
+        icon = Icons.beach_access;
+        color = Colors.orange[600]!;
+        break;
+      case 'wfh':
+        title = 'You Marked Work From Home';
+        icon = Icons.home_work;
+        color = Colors.blue[600]!;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildBookSlotOption(DateTime date) {
+    return InkWell(
+      onTap: () async {
+        Navigator.pop(context);
+        await _bookSlotForDate(date);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.green[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green[300]!, width: 2),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.event_available, color: Colors.green[600], size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Book Parking Slot',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green[700],
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Reserve your parking slot for this day',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+
 
   Widget _buildRemoveOption(DateTime date) {
     return InkWell(
@@ -868,25 +1378,19 @@ bool _isLoadingPreferences = false;
 
 
 
-
-
-
-
-
-
-
-
   Widget _buildPreferenceOption(DateTime date, String value, String title, String subtitle, IconData icon, Color color) {
     final isSelected = _datePreferences[date] == value;
 
     return InkWell(
-// ✅ REPLACE the onTap in _buildPreferenceOption with this:
       onTap: () async {
         final normalizedDate = DateTime(date.year, date.month, date.day);
 
-        // Show loading state
+        // ✅ IMMEDIATELY update UI to show the selection
         setState(() {
           _isUpdatingPreferences = true;
+          // Optimistically update the UI
+          _datePreferences[normalizedDate] = value;
+          _unavailableDates.add(normalizedDate);
         });
 
         try {
@@ -899,17 +1403,23 @@ bool _isLoadingPreferences = false;
             );
 
             if (result['success']) {
-              setState(() {
-                _datePreferences[normalizedDate] = value;
-                _unavailableDates.add(normalizedDate);
-              });
-
+              // Success - UI already updated optimistically
               _backend.showSnackBar(context, result['message']);
             } else {
+              // Failed - revert the optimistic update
+              setState(() {
+                _datePreferences.remove(normalizedDate);
+                _unavailableDates.remove(normalizedDate);
+              });
               _backend.showSnackBar(context, result['message'], isError: true);
             }
           }
         } catch (e) {
+          // Error - revert the optimistic update
+          setState(() {
+            _datePreferences.remove(normalizedDate);
+            _unavailableDates.remove(normalizedDate);
+          });
           _backend.showSnackBar(context, 'Error saving preference: $e', isError: true);
         } finally {
           setState(() {
@@ -919,9 +1429,6 @@ bool _isLoadingPreferences = false;
 
         Navigator.pop(context);
       },
-
-
-
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -974,7 +1481,6 @@ bool _isLoadingPreferences = false;
       ),
     );
   }
-
 
 
 
@@ -1044,12 +1550,6 @@ bool _isLoadingPreferences = false;
     return words.join(' ');
   }
 
-  bool isBookingWindowOpen() {
-    final now = DateTime.now();
-    final open = DateTime(now.year, now.month, now.day, 8, 0, 0);
-    final close = DateTime(now.year, now.month, now.day, 20, 0, 0);
-    return now.isAfter(open) && now.isBefore(close);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1175,142 +1675,12 @@ bool _isLoadingPreferences = false;
               ),
             ],
           ),
-          const SizedBox(height: 20),
-
-          // Weekly Calendar
-          _buildWeeklyCalendar(),
 
           const SizedBox(height: 16),
 
           // Info and Action Buttons
           _buildParkingPreferenceActions(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildWeeklyCalendar() {
-    final workingDays = _getNextWorkingDays(5);
-
-    return Column(
-      children: [
-        // Desktop/Tablet Layout - Single row for 5 working days
-        if (MediaQuery.of(context).size.width > 600) ...[
-          Row(
-            children: workingDays.map((date) =>
-                Expanded(child: _buildDayTile(date))
-            ).toList(),
-          ),
-        ] else ...[
-          // Mobile Layout - 2 rows (3 + 2)
-          Column(
-            children: [
-              Row(
-                children: workingDays.take(3).map((date) =>
-                    Expanded(child: _buildDayTile(date))
-                ).toList(),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  ...workingDays.skip(3).map((date) =>
-                      Expanded(child: _buildDayTile(date))
-                  ).toList(),
-                  // Fill remaining space to center the 2 items
-                  if (workingDays.length > 3)
-                    Expanded(child: Container()),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-
-
-  Widget _buildDayTile(DateTime date) {
-    final isToday = DateUtils.isSameDay(date, DateTime.now());
-    final isUnavailable = _datePreferences.containsKey(date);
-    final isPast = date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
-
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      child: InkWell(
-        onTap: isPast ? null : () {
-          // Add this method to toggle unavailable dates
-          _toggleDateAvailability(date);
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-          decoration: BoxDecoration(
-            color: _getDayTileColor(isToday, false, isUnavailable, isPast), // weekends removed
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: _getDayTileBorderColor(isToday, false, isUnavailable, isPast), // weekends removed
-              width: isToday ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                dayNames[date.weekday],
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: _getDayTileTextColor(isToday, false, isUnavailable, isPast), // weekends removed
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${date.day}',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: _getDayTileTextColor(isToday, false, isUnavailable, isPast), // weekends removed
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                monthNames[date.month],
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _getDayTileTextColor(isToday, false, isUnavailable, isPast).withOpacity(0.8), // weekends removed
-                ),
-              ),
-              const SizedBox(height: 4),
-
-// In _buildDayTile method, replace the bottom icon section with:
-              const SizedBox(height: 4),
-
-
-              if (_datePreferences.containsKey(date))
-                _getPreferenceIcon(date)
-              else if (!isPast)
-                Icon(
-                  Icons.add_circle_outline,
-                  size: 14,
-                  color: Colors.green[600],
-                )
-              else
-                Icon(
-                  Icons.schedule_rounded,
-                  size: 14,
-                  color: Colors.grey[400],
-                ),
-
-
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1328,51 +1698,69 @@ bool _isLoadingPreferences = false;
     }
   }
 
-
-
-  Color _getDayTileColor(bool isToday, bool isWeekend, bool isUnavailable, bool isPast) {
+  Color _getCombinedDayTileColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (isPast) {
       return isDark ? Colors.grey[800]! : Colors.grey[100]!;
     }
-    if (isUnavailable) {
-      return isDark ? Colors.red[900]!.withOpacity(0.3) : Colors.red[50]!;
+    if (hasDeclaration) {
+      return isDark ? Colors.orange[900]!.withOpacity(0.3) : Colors.orange[50]!;
+    }
+    if (isSlotBooked) {
+      if (isBookedByUser) {
+        return isDark ? Colors.green[900]!.withOpacity(0.3) : Colors.green[50]!;
+      } else {
+        // ✅ FIX: Show red for unavailable (booked by others)
+        return isDark ? Colors.red[900]!.withOpacity(0.3) : Colors.red[50]!;
+      }
     }
     if (isToday) {
       return Theme.of(context).colorScheme.primary.withOpacity(isDark ? 0.3 : 0.1);
     }
-    return isDark ? Colors.green[900]!.withOpacity(0.2) : Colors.green[50]!;
+    return isDark ? Colors.blue[900]!.withOpacity(0.2) : Colors.blue[50]!;
   }
 
-  Color _getDayTileBorderColor(bool isToday, bool isWeekend, bool isUnavailable, bool isPast) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (isPast) {
-      return isDark ? Colors.grey[600]! : Colors.grey[300]!;
+  Color _getCombinedDayTileBorderColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast) {
+    if (isPast) return Colors.grey[400]!;
+    if (hasDeclaration) return Colors.orange[600]!;
+    if (isSlotBooked) {
+      if (isBookedByUser) return Colors.green[600]!;
+      // ✅ FIX: Show red border for unavailable
+      return Colors.red[600]!;
     }
-    if (isUnavailable) {
-      return isDark ? Colors.red[400]! : Colors.red[300]!;
-    }
-    if (isToday) {
-      return Theme.of(context).colorScheme.primary;
-    }
-    return isDark ? Colors.green[400]! : Colors.green[300]!;
+    if (isToday) return Theme.of(context).colorScheme.primary;
+    return Colors.blue[600]!;
   }
 
-  Color _getDayTileTextColor(bool isToday, bool isWeekend, bool isUnavailable, bool isPast) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Color _getCombinedDayTileTextColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast) {
+    if (isPast) return Colors.grey[500]!;
+    if (hasDeclaration) return Colors.orange[700]!;
+    if (isSlotBooked) {
+      if (isBookedByUser) return Colors.green[700]!;
+      // ✅ FIX: Show red text for unavailable
+      return Colors.red[700]!;
+    }
+    if (isToday) return Theme.of(context).colorScheme.primary;
+    return Colors.blue[700]!;
+  }
 
+  Widget _getCombinedStatusIcon(bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast, DateTime date) {
     if (isPast) {
-      return isDark ? Colors.grey[400]! : Colors.grey[500]!;
+      return Icon(Icons.schedule_rounded, size: 14, color: Colors.grey[400]);
     }
-    if (isUnavailable) {
-      return isDark ? Colors.red[300]! : Colors.red[700]!;
+    if (hasDeclaration) {
+      return _getPreferenceIcon(date);
     }
-    if (isToday) {
-      return Theme.of(context).colorScheme.primary;
+    if (isSlotBooked) {
+      if (isBookedByUser) {
+        return Icon(Icons.check_circle, size: 16, color: Colors.green[600]);
+      } else {
+        // ✅ FIX: Show block icon for unavailable
+        return Icon(Icons.block, size: 16, color: Colors.red[600]);
+      }
     }
-    return isDark ? Colors.green[300]! : Colors.green[700]!;
+    return Icon(Icons.add_circle_outline, size: 14, color: Colors.blue[600]);
   }
 
   Widget _buildParkingPreferenceActions() {
@@ -1530,10 +1918,7 @@ bool _isLoadingPreferences = false;
               ),
             ],
           ),
-          const SizedBox(height: 20),
 
-          // Date Dropdown Section
-          _buildDateDropdown(),
 
           const SizedBox(height: 20),
 
@@ -1544,82 +1929,215 @@ bool _isLoadingPreferences = false;
     );
   }
 
-  Widget _buildDateDropdown() {
-    final workingDays = _getNextWorkingDays(5);
+  Widget _buildBookingStatusCard() {
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedSelectedDate = DateTime(_selectedBookingDate.year, _selectedBookingDate.month, _selectedBookingDate.day);
+    final isSelectedDateToday = DateUtils.isSameDay(_selectedBookingDate, normalizedToday);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
+    // ✅ Check if user declared unavailability for this date FIRST
+    if (_datePreferences.containsKey(normalizedSelectedDate)) {
+      return _buildUserDeclarationCard(normalizedSelectedDate);
+    }
+
+    // ✅ NEW: Check if user has booked ANY slot (not just their assigned slot)
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _backend.getUserBookedSlotForDate(
+        userEmail: FirebaseAuth.instance.currentUser?.email ?? '',
+        date: _selectedBookingDate,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildLoadingBookingStatusCard();
+        }
+
+        if (snapshot.hasError) {
+          return _buildErrorBookingStatusCard();
+        }
+
+        final userBookedSlot = snapshot.data;
+
+        if (userBookedSlot != null) {
+          // User has booked some slot (either their own or alternative)
+          return _buildUserHasBookingCard(userBookedSlot, _selectedBookingDate);
+        } else {
+          // User hasn't booked any slot, check if their assigned slot is available
+          return FutureBuilder<BookingStatus>(
+            future: _getBookingStatusForDate(_selectedBookingDate),
+            builder: (context, statusSnapshot) {
+              BookingStatus bookingStatus = BookingStatus.available;
+
+              if (statusSnapshot.hasData) {
+                bookingStatus = statusSnapshot.data!;
+              } else if (statusSnapshot.hasError) {
+                return _buildErrorBookingStatusCard();
+              }
+
+              return _buildBookingStatusCardContent(bookingStatus);
+            },
+          );
+        }
+      },
+    );
+  }
+
+  // ✅ NEW METHOD: Show when user has booked any slot (own or alternative)
+  Widget _buildUserHasBookingCard(Map<String, dynamic> bookedSlot, DateTime date) {
+    final slotId = bookedSlot['slotId'] as String;
+    final bookingData = bookedSlot['bookingData'] as Map<String, dynamic>;
+    final bookingType = bookingData['bookingType'] as String? ?? 'regular';
+    final vehicleType = bookingData['vehicleType'] as String? ?? 'BIKE';
+
+    final isAlternativeBooking = bookingType == 'alternative';
+    final primaryColor = isAlternativeBooking ? Colors.purple[600]! : Colors.green[600]!;
+    final backgroundColor = isAlternativeBooking ? Colors.purple[50]! : Colors.green[50]!;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? Colors.grey[800]!.withOpacity(0.5)
-            : Colors.grey[50],
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+          color: primaryColor,
+          width: 2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Status Icon and Title
           Row(
             children: [
-              Icon(
-                Icons.date_range,
-                color: Theme.of(context).colorScheme.primary,
-                size: 20,
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isAlternativeBooking ? Icons.swap_horiz : Icons.check_circle,
+                  color: primaryColor,
+                  size: 28,
+                ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                'Select Date',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurface,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isAlternativeBooking ? 'Alternative Slot Booked' : 'Slot Booked',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Slot ${slotId.toUpperCase()}',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+
+          // Slot Details
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
+              color: primaryColor.withOpacity(0.05),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            ),
+            child: Row(
+              children: [
+                Icon(_getVehicleIcon(vehicleType), size: 16, color: primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  '${vehicleType.toUpperCase()} • ${_getFormattedDateString(date)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (isAlternativeBooking) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.blue[600]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This is an alternative slot booking. Original owners declared unavailability.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<DateTime>(
-                value: workingDays.contains(_selectedBookingDate) ? _selectedBookingDate : workingDays.first,
-                isExpanded: true,
-                icon: Icon(
-                  Icons.keyboard_arrow_down,
-                  color: Theme.of(context).colorScheme.primary,
+          ],
+
+          const SizedBox(height: 16),
+
+          // Action Buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showMyBookedSlotDetails(date),
+                  icon: Icon(Icons.info_outline, size: 18),
+                  label: Text('View Details'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: primaryColor,
+                    side: BorderSide(color: primaryColor),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-                items: workingDays.map((DateTime date) {
-                  return DropdownMenuItem<DateTime>(
-                    value: date,
-                    child: _buildDropdownItem(date),
-                  );
-                }).toList(),
-                onChanged: (DateTime? newDate) {
-                  if (newDate != null) {
-                    setState(() {
-                      _selectedBookingDate = newDate;
-                    });
-                    // ✅ This will trigger the FutureBuilder to refresh
-                    _loadBookingStatusForDate(newDate);
-                  }
-                },
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _cancelBookingForDate(date),
+                  icon: Icon(Icons.cancel, size: 18),
+                  label: Text('Cancel'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[600],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1627,134 +2145,8 @@ bool _isLoadingPreferences = false;
   }
 
 
-
-  Widget _buildDropdownItem(DateTime date) {
-    final today = DateTime.now();
-    final isToday = DateUtils.isSameDay(date, today);
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: isToday
-                ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            dayNames[date.weekday],
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isToday
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          '${monthNames[date.month]} ${date.day}, ${date.year}',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
-        const Spacer(),
-        if (isToday)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              'Today',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-
-
-  Widget _buildBookingStatusCard() {
-    final today = DateTime.now();
-    final normalizedToday = DateTime(today.year, today.month, today.day);
-    final normalizedSelectedDate = DateTime(_selectedBookingDate.year, _selectedBookingDate.month, _selectedBookingDate.day);
-    final isSelectedDateToday = DateUtils.isSameDay(_selectedBookingDate, normalizedToday);
-
-    // ✅ NEW: Check if user declared unavailability for this date FIRST
-    if (_datePreferences.containsKey(normalizedSelectedDate)) {
-      return _buildUserDeclarationCard(normalizedSelectedDate);
-    }
-
-    // If selected date is today, use _todaysBooking data
-    if (isSelectedDateToday) {
-      if (_isLoadingTodayBooking) {
-        return _buildLoadingBookingStatusCard();
-      }
-
-      // Use existing today's booking data
-      BookingStatus bookingStatus = BookingStatus.available;
-
-      if (_todaysBooking != null) {
-        final exists = _todaysBooking!['exists'] as bool;
-        final isBookedByCurrentUser = _todaysBooking!['isBookedByCurrentUser'] as bool;
-
-        if (exists) {
-          if (isBookedByCurrentUser) {
-            bookingStatus = BookingStatus.booked;
-          } else {
-            bookingStatus = BookingStatus.unavailable;
-          }
-        }
-      }
-
-      return _buildBookingStatusCardContent(bookingStatus);
-    }
-
-    // For other dates, use the existing FutureBuilder logic
-    if (_isLoadingBookingStatus) {
-      return _buildLoadingBookingStatusCard();
-    }
-
-    return FutureBuilder<BookingStatus>(
-      future: _getBookingStatusForDate(_selectedBookingDate),
-      builder: (context, snapshot) {
-        BookingStatus bookingStatus = BookingStatus.available;
-
-        if (snapshot.hasData) {
-          bookingStatus = snapshot.data!;
-        } else if (snapshot.hasError) {
-          return _buildErrorBookingStatusCard();
-        }
-
-        return _buildBookingStatusCardContent(bookingStatus);
-      },
-    );
-  }
-
-
-
   Widget _buildUserDeclarationCard(DateTime date) {
     final preference = _datePreferences[date];
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
     String title = '';
     String subtitle = '';
     IconData icon = Icons.info_outline;
@@ -1763,8 +2155,7 @@ bool _isLoadingPreferences = false;
 
     switch (preference) {
       case 'leave':
-        title = 'You Declared Leave';
-        subtitle = 'You have marked yourself as on leave for this day';
+        title = 'You Marked Leave';
         icon = Icons.beach_access;
         primaryColor = Colors.orange[600]!;
         backgroundColor = Theme.of(context).brightness == Brightness.dark
@@ -1772,8 +2163,7 @@ bool _isLoadingPreferences = false;
             : Colors.orange[50]!;
         break;
       case 'wfh':
-        title = 'You Declared Work From Home';
-        subtitle = 'You have marked yourself as working from home for this day';
+        title = 'You Marked Work From Home';
         icon = Icons.home_work;
         primaryColor = Colors.blue[600]!;
         backgroundColor = Theme.of(context).brightness == Brightness.dark
@@ -1781,8 +2171,7 @@ bool _isLoadingPreferences = false;
             : Colors.blue[50]!;
         break;
       default:
-        title = 'You Declared Unavailable';
-        subtitle = 'You have marked yourself as unavailable for this day';
+        title = 'You Marked Unavailable';
         icon = Icons.event_busy;
         primaryColor = Colors.grey[600]!;
         backgroundColor = Theme.of(context).brightness == Brightness.dark
@@ -1870,7 +2259,7 @@ bool _isLoadingPreferences = false;
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}, ${date.year}',
+                  '${_getFormattedDateString(date)}, ${date.year}',
                   style: TextStyle(
                     fontSize: 14,
                     color: primaryColor,
@@ -2140,10 +2529,6 @@ bool _isLoadingPreferences = false;
   }
 
   void _showAvailableSlotsBottomSheet(DateTime date) {
-    final dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2180,7 +2565,7 @@ bool _isLoadingPreferences = false;
                 ),
               ),
 
-              // Header
+              // Header (simplified - no toggle)
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Row(
@@ -2211,7 +2596,7 @@ bool _isLoadingPreferences = false;
                             ),
                           ),
                           Text(
-                            '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}',
+                            _getFormattedDateString(date),
                             style: TextStyle(
                               fontSize: 14,
                               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -2231,13 +2616,10 @@ bool _isLoadingPreferences = false;
                 ),
               ),
 
-
-
-
               // Content
               Expanded(
                 child: FutureBuilder<Map<String, dynamic>?>(
-                  future: _userSlotFuture, // ✅ Use existing user slot data
+                  future: _userSlotFuture,
                   builder: (context, userSlotSnapshot) {
                     if (userSlotSnapshot.connectionState == ConnectionState.waiting) {
                       return _buildLoadingState();
@@ -2247,14 +2629,13 @@ bool _isLoadingPreferences = false;
                       return _buildErrorState('Unable to get user vehicle type');
                     }
 
-                    // ✅ Extract vehicle type from existing cached data
                     final userSlotData = userSlotSnapshot.data!['slotData'] as Map<String, dynamic>;
                     final userVehicleType = userSlotData['vehicleType'] as String? ?? 'BIKE';
 
                     return FutureBuilder<List<Map<String, dynamic>>>(
                       future: _backend.getAvailableSlotsWithUserDetails(
                         date: date,
-                        vehicleTypeFilter: userVehicleType, // ✅ Pass user's vehicle type
+                        vehicleTypeFilter: userVehicleType,
                       ),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2271,20 +2652,19 @@ bool _isLoadingPreferences = false;
                           return _buildEmptyState(date);
                         }
 
-                        return _buildAvailableSlotsList(availableSlots, scrollController);
+                        return _buildAvailableSlotsList(availableSlots, scrollController, date); // ✅ Pass date
                       },
                     );
                   },
                 ),
               ),
-
-
             ],
           ),
         ),
       ),
     );
   }
+
 
 
   Widget _buildLoadingState() {
@@ -2398,30 +2778,31 @@ bool _isLoadingPreferences = false;
     );
   }
 
-// ✅ NEW: Available slots list widget
-  Widget _buildAvailableSlotsList(List<Map<String, dynamic>> availableSlots, ScrollController scrollController) {
+
+  Widget _buildAvailableSlotsList(List<Map<String, dynamic>> availableSlots, ScrollController scrollController, DateTime date) {
     return ListView.builder(
       controller: scrollController,
       padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
       itemCount: availableSlots.length,
       itemBuilder: (context, index) {
         final slot = availableSlots[index];
-        return _buildAvailableSlotCard(slot);
+        return _buildAvailableSlotCard(slot, date); // ✅ Pass date parameter
       },
     );
   }
 
-// ✅ NEW: Individual slot card widget
-  Widget _buildAvailableSlotCard(Map<String, dynamic> slot) {
+  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date) {
+
     final slotId = slot['slotId'] as String;
     final vehicleType = slot['vehicleType'] as String;
     final slotUsers = slot['slotUsers'] as int;
+    final declarationsCount = slot['declarationsCount'] as int;
     final declarations = List<Map<String, dynamic>>.from(slot['declarations'] ?? []);
     final slotData = slot['slotData'] as Map<String, dynamic>?;
     final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
 
-    final slotPriority = slotData?['slotPriority'] as String? ?? 'permanent';
-    final vehicleCompatibility = slotData?['VehicleCompatibility'] as String?;
+    // ✅ NEW: Check availability status
+    final isFullyAvailable = slot['isFullyAvailable'] as bool? ?? false;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -2432,7 +2813,9 @@ bool _isLoadingPreferences = false;
             : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+          color: isFullyAvailable
+              ? Colors.green.withOpacity(0.3)
+              : Colors.orange.withOpacity(0.3),
           width: 1,
         ),
         boxShadow: [
@@ -2477,7 +2860,7 @@ bool _isLoadingPreferences = false;
                       ),
                     ),
                     Text(
-                      '$vehicleType • $slotPriority',
+                      '$vehicleType • ${slotData?['slotPriority'] ?? 'permanent'}',
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -2486,19 +2869,35 @@ bool _isLoadingPreferences = false;
                   ],
                 ),
               ),
+              // ✅ UPDATED: Availability status badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.green[100],
+                  color: isFullyAvailable ? Colors.green[100] : Colors.orange[100],
                   borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Available',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.green[700],
+                  border: Border.all(
+                    color: isFullyAvailable ? Colors.green[300]! : Colors.orange[300]!,
+                    width: 1,
                   ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isFullyAvailable ? Icons.check_circle : Icons.access_time,
+                      size: 14,
+                      color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isFullyAvailable ? 'Fully Available' : 'Partially Available',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -2506,27 +2905,29 @@ bool _isLoadingPreferences = false;
 
           const SizedBox(height: 12),
 
-          // Availability info
+          // ✅ UPDATED: Availability info with better messaging
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              color: (isFullyAvailable ? Colors.green : Colors.orange).withOpacity(0.05),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
                 Icon(
-                  Icons.info_outline,
+                  isFullyAvailable ? Icons.verified_outlined : Icons.info_outline,
                   size: 16,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: isFullyAvailable ? Colors.green[600] : Colors.orange[600],
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'All $slotUsers slot users declared unavailability',
+                    isFullyAvailable
+                        ? 'All $slotUsers users marked unavailability '
+                        : '$declarationsCount of $slotUsers users marked unavailability',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -2540,7 +2941,7 @@ bool _isLoadingPreferences = false;
           // Declared users (collapsible)
           ExpansionTile(
             title: Text(
-              'Slot Users ($slotUsers)',
+              'Slot Users ',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -2548,53 +2949,72 @@ bool _isLoadingPreferences = false;
               ),
             ),
             childrenPadding: const EdgeInsets.only(top: 8),
-            children: declarations.map((declaration) {
-              final userEmail = declaration['declaredBy'] as String;
-              final reason = declaration['reason'] as String;
-              final userName = _getUserNameFromEmail(userEmail, allotedUsers);
+            children: [
+              // ✅ NEW: Show all users with their status
+              ...allotedUsers.map((user) {
+                final userEmail = user['email'] as String;
+                final userName = user['name'] as String? ?? _getUserNameFromEmail(userEmail, allotedUsers);
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _getReasonColor(reason),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        userName,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).colorScheme.onSurface,
+                // Check if this user has declared
+                final userDeclaration = declarations.firstWhere(
+                      (d) => d['declaredBy'] == userEmail,
+                  orElse: () => <String, dynamic>{},
+                );
+
+                final hasDeclaration = userDeclaration.isNotEmpty;
+                final reason = userDeclaration['reason'] as String?;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: hasDeclaration
+                              ? _getReasonColor(reason ?? 'unavailable')
+                              : Colors.grey[400],
+                          shape: BoxShape.circle,
                         ),
                       ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _getReasonColor(reason).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _getReasonDisplayText(reason),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: _getReasonColor(reason),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          userName,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: hasDeclaration
+                              ? _getReasonColor(reason ?? 'unavailable').withOpacity(0.1)
+                              : Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          hasDeclaration
+                              ? _getReasonDisplayText(reason ?? 'unavailable')
+                              : 'Pending',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: hasDeclaration
+                                ? _getReasonColor(reason ?? 'unavailable')
+                                : Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ],
           ),
 
           const SizedBox(height: 16),
@@ -2603,28 +3023,435 @@ bool _isLoadingPreferences = false;
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => _requestSlotFromAvailable(
-                slotId,
-                _selectedBookingDate, // Pass the selected date
-                declarations, // Pass the declarations list
+              onPressed: isFullyAvailable ? () async {
+                // ✅ UPDATED: Implement booking logic for fully available slots
+                Navigator.pop(context); // Close the bottom sheet
+                await _bookAvailableSlot(slot, date); // ✅ Pass the date parameter
+              } : null,
+              icon: Icon(
+                Icons.event_available,
+                size: 18,
+                color: isFullyAvailable ? Colors.white : Colors.grey[500],
               ),
-              icon: Icon(Icons.send, size: 18),
-              label: Text('Request This Slot'),
+              label: Text(
+                'Book This Slot',
+                style: TextStyle(
+                  color: isFullyAvailable ? Colors.white : Colors.grey[500],
+                ),
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
+                backgroundColor: isFullyAvailable
+                    ? Colors.green[600]
+                    : Colors.grey[300],
+                foregroundColor: isFullyAvailable ? Colors.white : Colors.grey[500],
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                elevation: 2,
+                elevation: isFullyAvailable ? 2 : 0,
+                disabledBackgroundColor: Colors.grey[300],
+                disabledForegroundColor: Colors.grey[500],
               ),
             ),
+          ),
+
+
+        ],
+      ),
+    );
+  }
+
+
+  Future<void> _bookAvailableSlot(Map<String, dynamic> slot, DateTime date) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final slotId = slot['slotId'] as String;
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Booking slot $slotId...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final result = await _backend.bookAvailableSlotForDate(
+        targetSlotId: slotId,
+        userEmail: user.email!,
+        userName: user.displayName ?? _backend.getDisplayNameFromEmail(user.email!),
+        date: date,
+      );
+
+      Navigator.pop(context); // Close loading dialog
+
+      if (result['success']) {
+        _backend.showSnackBar(context, result['message']);
+
+        // ✅ IMMEDIATE: Update cache with alternative booking data
+        await _updateWeeklyCacheForDate(
+          date,
+          isBooked: true,
+          isBookedByCurrentUser: true,
+          bookedSlotId: slotId,
+          bookingType: 'alternative',
+          assignedSlotBookedByOther: false,
+        );
+
+        // ✅ REFRESH: Complete data reload
+        await refreshData();
+      } else {
+        final message = result['message'] as String;
+        if (message.startsWith('already_booked_other:')) {
+          await _showAlreadyBookedDialog(message, date);
+        } else {
+          _backend.showSnackBar(context, message, isError: true);
+        }
+      }
+    } catch (e) {
+      Navigator.pop(context);
+      _backend.showSnackBar(context, 'Error booking slot: $e', isError: true);
+    }
+  }
+
+
+
+ Future<void> _showAlreadyBookedDialog(String message, DateTime date) async {
+    // Parse the message: "already_booked_other:slotId:userName"
+    final parts = message.split(':');
+    final bookedSlotId = parts.length > 1 ? parts[1] : 'Unknown';
+    final bookedUserName = parts.length > 2 ? parts[2] : 'You';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.orange[600]),
+            const SizedBox(width: 12),
+            const Text('Already Booked'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You have already booked another slot for ${_getFormattedDateString(date)}:',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.local_parking, color: Colors.blue[600]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Slot ${bookedSlotId.toUpperCase()}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Booked by: $bookedUserName',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.blue[600],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Date: ${_getFormattedDateString(date)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.blue[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber, size: 16, color: Colors.orange[600]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'You can only book one slot per day. Cancel your current booking to book a different slot.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showMyBookedSlotDetails(date);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue[600],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('View My Booking'),
           ),
         ],
       ),
     );
   }
+
+// ✅ NEW METHOD: Show current user's booked slot details
+  Future<void> _showMyBookedSlotDetails(DateTime date) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading your booking details...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final bookedSlotDetails = await _backend.getUserBookedSlotForDate(
+        userEmail: user.email!,
+        date: date,
+      );
+
+      // Close loading dialog
+      Navigator.pop(context);
+
+      if (bookedSlotDetails != null) {
+        _showBookedSlotDetailsDialog(bookedSlotDetails, date);
+      } else {
+        _backend.showSnackBar(context, 'No booking found for this date', isError: true);
+      }
+    } catch (e) {
+      // Close loading dialog
+      Navigator.pop(context);
+      _backend.showSnackBar(context, 'Error loading booking details: $e', isError: true);
+    }
+  }
+
+// ✅ NEW METHOD: Show detailed dialog of booked slot
+  void _showBookedSlotDetailsDialog(Map<String, dynamic> slotDetails, DateTime date) {
+    final slotId = slotDetails['slotId'] as String;
+    final bookingData = slotDetails['bookingData'] as Map<String, dynamic>;
+    final userName = bookingData['userName'] as String? ?? 'Unknown';
+    final vehicleType = bookingData['vehicleType'] as String? ?? 'Unknown';
+    final bookingType = bookingData['bookingType'] as String? ?? 'regular';
+    final bookedAt = bookingData['bookedAt'];
+
+    String bookingTimeStr = 'Unknown';
+    if (bookedAt != null && bookedAt is Timestamp) {
+      bookingTimeStr = DateFormat('MMM dd, yyyy - hh:mm a').format(bookedAt.toDate());
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.local_parking, color: Colors.green[600]),
+            ),
+            const SizedBox(width: 12),
+            const Text('Your Booking Details'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Slot ID
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Slot ${slotId.toUpperCase()}',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[700],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 16, color: Colors.green[600]),
+                      const SizedBox(width: 6),
+                      Text(
+                        _getFormattedDateString(date),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.green[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Booking Details
+            _buildDetailRow('Booked By', userName, Icons.person),
+            const SizedBox(height: 12),
+            _buildDetailRow('Vehicle Type', vehicleType.toUpperCase(), _getVehicleIcon(vehicleType)),
+            const SizedBox(height: 12),
+            _buildDetailRow('Booking Type', bookingType == 'alternative' ? 'Alternative Slot' : 'Regular Slot',
+                bookingType == 'alternative' ? Icons.swap_horiz : Icons.event_available),
+            const SizedBox(height: 12),
+            _buildDetailRow('Booked At', bookingTimeStr, Icons.access_time),
+
+            if (bookingType == 'alternative') ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.blue[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This is an alternative slot booking. The original slot owners declared unavailability.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _cancelBookingForDate(date);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[600],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Cancel Booking'),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ HELPER METHOD: Build detail row
+  Widget _buildDetailRow(String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.grey[600]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+
+
 
 // ✅ NEW: Helper methods
   String _getUserNameFromEmail(String email, List<Map<String, dynamic>> allotedUsers) {
@@ -2657,55 +3484,6 @@ bool _isLoadingPreferences = false;
         return reason.toUpperCase();
     }
   }
-
-
-  void _requestSlotFromAvailable(String slotId, DateTime requestDate, List<Map<String, dynamic>> declarations) async {
-    Navigator.pop(context); // Close bottom sheet
-
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Text('Submitting request...'),
-              ],
-            ),
-          );
-        },
-      );
-
-      // Extract emails from declarations
-      final slotUsersEmails = declarations
-          .map((declaration) => declaration['declaredBy'] as String)
-          .toList();
-
-      // ✅ Use new method
-      final result = await _backend.createSlotRequestForDate(
-        requestDate: requestDate,
-        targetSlotId: slotId,
-        slotUsersEmails: slotUsersEmails,
-      );
-
-      Navigator.of(context).pop(); // Close loading dialog
-
-      if (result['success']) {
-        _backend.showSnackBar(context, result['message']);
-      } else {
-        _backend.showSnackBar(context, result['message'], isError: true);
-      }
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog
-      _backend.showSnackBar(context, 'Error submitting request: $e', isError: true);
-    }
-  }
-
-
-
 
   List<DateTime> _getNextWorkingDays(int count) {
     final today = DateTime.now();
@@ -2865,33 +3643,51 @@ bool _isLoadingPreferences = false;
       }
     }
   }
-  
-
-
-
 
   Future<void> _cancelBookingForDate(DateTime date) async {
     final user = FirebaseAuth.instance.currentUser;
-    final userSlot = await _userSlotFuture;
-
-    if (user == null || userSlot == null) return;
-
-    final slotId = userSlot['slotId'] as String;
+    if (user == null) return;
 
     setState(() {
       _isLoadingBookingStatus = true;
     });
 
     try {
+      // Get the actual booked slot details
+      final bookedSlotDetails = await _backend.getUserBookedSlotForDate(
+        userEmail: user.email!,
+        date: date,
+      );
+
+      if (bookedSlotDetails == null) {
+        _backend.showSnackBar(context, 'No booking found for this date', isError: true);
+        return;
+      }
+
+      final actualBookedSlotId = bookedSlotDetails['slotId'] as String;
+
       final result = await _backend.cancelBookingForDate(
-        slotId: slotId,
+        slotId: actualBookedSlotId,
         userEmail: user.email!,
         date: date,
       );
 
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
-        _loadBookingStatusForDate(date); // Refresh the status
+
+        // ✅ IMMEDIATE: Clear weekly cache completely for this date
+        await _updateWeeklyCacheForDate(
+          date,
+          isBooked: false,
+          isBookedByCurrentUser: false,
+          bookedSlotId: null,
+          bookingType: 'regular',
+          assignedSlotBookedByOther: false,
+        );
+
+        // ✅ REFRESH: Reload actual status to check if assigned slot is booked by others
+        await _loadSingleDateSlotStatus(date);
+        _loadBookingStatusForDate(date);
       } else {
         _backend.showSnackBar(context, result['message'], isError: true);
       }
@@ -2903,12 +3699,6 @@ bool _isLoadingPreferences = false;
       });
     }
   }
-
-
-
-
-
-
 
 
   Widget _buildNoSlotAssignedCard() {
@@ -3092,16 +3882,11 @@ bool _isLoadingPreferences = false;
         children: [
           _buildSlotInfoCard(
               slotId, vehicleType, slotPriority, vehicleCompatibility),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
+          _buildCombinedWeeklyParkingCard(),
 
-          _buildSlotRequestsCard(),
           const SizedBox(height: 16),
           _buildrulesCard(),
-          const SizedBox(height: 10),
-          _buildParkingUsageCard(),
-          const SizedBox(height: 16),
-          _buildWeeklyBookingCard(),
-
 
           const SizedBox(height: 16),
           _buildSlotUsersCard(allotedTo),
@@ -3174,59 +3959,6 @@ bool _isLoadingPreferences = false;
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          if (vehicleType.toUpperCase() == 'CAR' &&
-              vehicleCompatibility != null &&
-              vehicleCompatibility.isNotEmpty) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInfoTile(
-                    'Vehicle Type',
-                    vehicleType,
-                    _getVehicleColor(vehicleType),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildInfoTile(
-                    'Priority',
-                    slotPriority,
-                    _getPriorityColor(slotPriority),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildInfoTile(
-                    'Level',
-                    vehicleCompatibility,
-                    Colors.indigo,
-                  ),
-                ),
-              ],
-            ),
-          ] else
-            ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildInfoTile(
-                      'Vehicle Type',
-                      vehicleType,
-                      _getVehicleColor(vehicleType),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildInfoTile(
-                      'Priority',
-                      slotPriority,
-                      _getPriorityColor(slotPriority),
-                    ),
-                  ),
-                ],
-              ),
-            ],
         ],
       ),
     );
@@ -3351,75 +4083,6 @@ bool _isLoadingPreferences = false;
   }
 
 
-
-
-
-
-
-
-  Widget _buildTodaysBookingStatus(Map<String, dynamic> bookingInfo,
-      String slotId) {
-    final exists = bookingInfo['exists'] as bool;
-    final isBookedByCurrentUser = bookingInfo['isBookedByCurrentUser'] as bool;
-
-    if (!exists) {
-      return _buildTodaysSlotAvailableInfo(slotId);
-    } else if (isBookedByCurrentUser) {
-      return _buildBookingInfo(bookingInfo);
-    } else {
-      return _buildTodaysOtherUserBookingInfo(bookingInfo);
-    }
-  }
-
-
-
-
-  Widget _buildTodaysSlotAvailableInfo(String slotId) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue[200]!),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.event_available_rounded, color: Colors.blue[600], size: 32),
-          const SizedBox(height: 8),
-          Text(
-            'Slot Available for Today',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.blue[700]),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Your slot ${slotId.toUpperCase()} is available today',
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-             onPressed: () => _bookSlotForDate(DateTime.now()),
-              label: Text('Book Slot for Today'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[600],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                elevation: 2,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-
-
   Future<void> _bookSlotForDate(DateTime date) async {
     final user = FirebaseAuth.instance.currentUser;
     final userSlot = await _userSlotFuture;
@@ -3427,8 +4090,6 @@ bool _isLoadingPreferences = false;
     if (user == null || userSlot == null) return;
 
     final slotId = userSlot['slotId'] as String;
-
-    // ✅ Use appropriate loading state based on whether it's today or not
     final isToday = DateUtils.isSameDay(date, DateTime.now());
 
     setState(() {
@@ -3440,13 +4101,12 @@ bool _isLoadingPreferences = false;
     });
 
     try {
-      // ✅ Get the actual vehicle type from slot data
       final slotData = userSlot['slotData'] as Map<String, dynamic>;
       final vehicleType = slotData['vehicleType'] as String? ?? 'BIKE';
 
       final result = await _backend.bookSlotForDate(
         slotId: slotId,
-        vehicleType: vehicleType, // ✅ Use actual vehicle type
+        vehicleType: vehicleType,
         userEmail: user.email!,
         userName: user.displayName ?? _backend.getDisplayNameFromEmail(user.email!),
         date: date,
@@ -3455,11 +4115,21 @@ bool _isLoadingPreferences = false;
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // ✅ Refresh appropriate data based on date
+        // ✅ IMMEDIATE: Update weekly cache with complete data
+        await _updateWeeklyCacheForDate(
+          date,
+          isBooked: true,
+          isBookedByCurrentUser: true,
+          bookedSlotId: slotId,
+          bookingType: 'regular',
+          assignedSlotBookedByOther: false,
+        );
+
+        // ✅ REFRESH: Update other data sources
         if (isToday) {
           await _refreshTodayOnly();
         } else {
-          _loadBookingStatusForDate(date); // Refresh the status
+          _loadBookingStatusForDate(date);
         }
       } else {
         _backend.showSnackBar(context, result['message'], isError: true);
@@ -3562,154 +4232,6 @@ bool _isLoadingPreferences = false;
 
 
   }
-
-  Widget _buildTodaysOtherUserBookingInfo(Map<String, dynamic> bookingInfo) {
-    final bookingData = bookingInfo['bookingData'] as Map<String, dynamic>;
-    final slotId = bookingInfo['slotId'] as String;
-    final bookedBy = bookingInfo['bookedBy'] as String;
-    final bookedUserName = bookingData['userName'] as String? ?? bookedBy.split('@').first;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.red[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red[200]!),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.block_rounded,
-                color: Colors.red[600],
-                size: 32,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Slot  Booked for Today',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.red[100],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Booked by: $bookedUserName',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.red[700],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Check toggle states and show appropriate options
-          if (_isLoadingToggles) ...[
-            CircularProgressIndicator(strokeWidth: 2),
-            const SizedBox(height: 8),
-            Text('Loading options...', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          ] else if (!_allowRequests && !_allowAutoAllotment) ...[
-            // Neither toggle is enabled
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'No booking options available at the moment',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600], fontStyle: FontStyle.italic),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ] else ...[
-            // Show slot allotment widget if auto allotment is enabled
-            if (_allowAutoAllotment) ...[
-              FutureBuilder<Map<String, dynamic>>(
-                future: _backend.getUserRequestsSummary(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    );
-                  }
-
-                  final summary = snapshot.data ?? {};
-                  final altRequest = _getRequestByType(summary, 'AltReq');
-                  final status = altRequest?['status'] ?? 'pending';
-                  final userEmail = FirebaseAuth.instance.currentUser?.email ?? '';
-
-                  // Get vehicle type from user's assigned slot
-                  return FutureBuilder<Map<String, dynamic>?>(
-                    future: _userSlotFuture, // Get user's slot data
-                    builder: (context, slotSnapshot) {
-                      if (slotSnapshot.connectionState == ConnectionState.waiting) {
-                        return Container(
-                          padding: const EdgeInsets.all(16),
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        );
-                      }
-
-                      // Extract vehicle type from user's assigned slot (not booking data)
-                      String vehicleType = 'BIKE'; // Default fallback
-                      if (slotSnapshot.hasData && slotSnapshot.data != null) {
-                        final slotData = slotSnapshot.data!['slotData'] as Map<String, dynamic>;
-                        vehicleType = slotData['vehicleType'] as String? ?? 'BIKE';
-                      }
-
-                      return SlotAllotmentWidget(
-                        requestId: altRequest != null ? 'alt_request_${DateTime.now().millisecondsSinceEpoch}' : '',
-                        vehicleType: vehicleType, // ✅ Use user's assigned slot vehicle type
-                        requestData: {
-                          'email': userEmail,
-                          'vehicleType': vehicleType, // ✅ Use user's assigned slot vehicle type
-                          'currentSlotId': slotId,
-                          'type': 'AltReq',
-                        },
-
-                        isDesktop: MediaQuery.of(context).size.width > 768,
-
-                        onSlotsRefresh: () async {
-                          await _refreshTodayOnly();
-                        },
-                      );
-                    },
-                  );
-
-                },
-              )
-            ],
-
-            // Show request buttons if requests are allowed (and auto allotment is not enabled)
-
-          ],
-        ],
-      ),
-    );
-  }
-
-
 
 
   Map<String, dynamic>? _getRequestByType(Map<String, dynamic> summary, String requestType) {
@@ -3817,102 +4339,6 @@ bool _isLoadingPreferences = false;
 
 
 
-  Widget _buildCurrentUserBookingInfo(Map<String, dynamic> bookingInfo) {
-    return _buildBookingInfo(bookingInfo);
-  }
-
-
-
-  Widget _buildBookingInfo(Map<String, dynamic> booking) {
-    final slotId = booking['slotId'] as String;
-    final bookingData = booking['bookingData'] as Map<String, dynamic>;
-    final bookedAt = bookingData['bookedAt'] as Timestamp?;
-    final vehicleType = bookingData['vehicleType'] as String? ?? 'UNKNOWN';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.green[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green[200]!),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.check_circle_rounded,
-                color: Colors.green[600],
-                size: 32,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Slot Booked for Today',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    Text(
-                      'Slot: ${slotId.toUpperCase()} • Vehicle: ${vehicleType.toUpperCase()}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    if (bookedAt != null)
-                      Text(
-                        'Booked at: ${DateFormat('MMM dd, yyyy - hh:mm a').format(bookedAt.toDate())}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[500],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isLoadingTodayBooking
-                  ? null
-                  : () => _cancelTodaysBooking(slotId),
-              icon: _isLoadingTodayBooking
-                  ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-                  : const Icon(Icons.cancel_rounded),
-              label: Text(_isLoadingTodayBooking ? 'Canceling...' : 'Cancel Booking'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[600],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
   Widget _buildSlotUsersCard(List<dynamic> allotedTo) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -3962,21 +4388,6 @@ bool _isLoadingPreferences = false;
   }
 
 
-  Future<void> _initializeData() async {
-    // Initialize _userSlotFuture first
-    setState(() {
-      _userSlotFuture = fetchUserSlot();
-    });
-
-    // Wait for user slot data
-    final userSlot = await _userSlotFuture;
-
-    // ✅ ADD: Load requests after user slot is ready
-    await _loadUserSlotRequests();
-
-    await _loadBookings();
-    await fetchSlotRequest();
-  }
 
 
 
@@ -4201,15 +4612,11 @@ bool _isLoadingPreferences = false;
     };
   }
 
-
-
-
-
-
   Future<void> refreshData() async {
     // Clear cache to force fresh data
     _cachedUserSlot = null;
-    _bookingStatuses.clear(); // ✅ ADD this line
+    _bookingStatuses.clear();
+    _weeklySlotData.clear(); // ✅ Clear weekly data cache
 
     // Reinitialize _userSlotFuture
     setState(() {
@@ -4217,11 +4624,98 @@ bool _isLoadingPreferences = false;
     });
 
     await _userSlotFuture;
-    await _loadUserSlotRequests();
-    await _loadBookings();
-    await fetchSlotRequest();
-    await _loadPreferencesFromBackend();
-    await _loadBookingStatusForDate(_selectedBookingDate); // ✅ ADD this line
+
+    // Refresh all data
+    await Future.wait([
+      _loadBookings(),
+      fetchSlotRequest(),
+      _loadPreferencesFromBackend(),
+      _loadWeeklySlotData(), // ✅ Refresh weekly slot data
+    ]);
+  }
+
+  Future<void> _loadWeeklySlotData() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingWeeklyData = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final userSlot = await _userSlotFuture;
+
+      if (user != null && userSlot != null) {
+        final userEmail = user.email!;
+        final assignedSlotId = userSlot['slotId'] as String;
+        final workingDays = _getNextWorkingDays(5);
+        final Map<DateTime, Map<String, dynamic>> weeklyData = {};
+
+        // ✅ FIX: Check both user's bookings AND assigned slot status
+        final futures = workingDays.map((date) async {
+          // Check if user has booked any slot
+          final userBooking = await _backend.getUserBookedSlotForDate(
+            userEmail: userEmail,
+            date: date,
+          );
+
+          // ✅ NEW: Also check if user's assigned slot is booked by others
+          final assignedSlotStatus = await _backend.getBookingStatusForDate(
+            slotId: assignedSlotId,
+            userEmail: userEmail,
+            date: date,
+          );
+
+          // Determine the final status
+          bool isBooked = false;
+          bool isBookedByCurrentUser = false;
+          String? bookedSlotId;
+          String bookingType = 'regular';
+
+          if (userBooking != null) {
+            // User has booked some slot (either their own or alternative)
+            isBooked = true;
+            isBookedByCurrentUser = true;
+            bookedSlotId = userBooking['slotId'];
+            bookingType = userBooking['bookingData']?['bookingType'] ?? 'regular';
+          } else if (assignedSlotStatus['exists'] == true) {
+            // User's assigned slot is booked by someone else
+            isBooked = true;
+            isBookedByCurrentUser = false;
+            bookedSlotId = assignedSlotId;
+            bookingType = 'unavailable'; // Mark as unavailable
+          }
+
+          return MapEntry(date, {
+            'isBooked': isBooked,
+            'isBookedByCurrentUser': isBookedByCurrentUser,
+            'bookedSlotId': bookedSlotId,
+            'bookingType': bookingType,
+            'assignedSlotBookedByOther': assignedSlotStatus['exists'] == true && !isBookedByCurrentUser,
+          });
+        });
+
+        final results = await Future.wait(futures);
+
+        for (final entry in results) {
+          weeklyData[entry.key] = entry.value;
+        }
+
+        if (mounted) {
+          setState(() {
+            _weeklySlotData = weeklyData;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading weekly slot data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingWeeklyData = false;
+        });
+      }
+    }
   }
 
 
@@ -4274,37 +4768,6 @@ bool _isLoadingPreferences = false;
     } catch (e) {
       print('Error checking single booking: $e');
       return null;
-    }
-  }
-
-
-  Future<void> _cancelTodaysBooking(String slotId) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    setState(() {
-      _isLoadingTodayBooking = true;
-    });
-
-    try {
-      final result = await _backend.cancelBookingForDate(
-        slotId: slotId,
-        userEmail: user.email!,
-        date: DateTime.now(),
-      );
-
-      if (result['success']) {
-        _backend.showSnackBar(context, result['message']);
-        await _refreshTodayOnly();
-      } else {
-        _backend.showSnackBar(context, result['message'], isError: true);
-      }
-    } catch (e) {
-      _backend.showSnackBar(context, 'Error cancelling booking: $e', isError: true);
-    } finally {
-      setState(() {
-        _isLoadingTodayBooking = false;
-      });
     }
   }
 
@@ -4463,9 +4926,6 @@ bool _isLoadingPreferences = false;
 
   @override
   void dispose() {
-    _toggleSubscription?.cancel();
-
-    _requestsSubscription?.cancel();
     super.dispose();
   }
 
