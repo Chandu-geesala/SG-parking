@@ -1,18 +1,13 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-import '../../viewModel/authService.dart';
+import '../../viewModel/authService.dart'; // Update import path as needed
 import '../admin/adminHome.dart';
 import '../auth_screens/auth_screen.dart';
-import '../auth_screens/signUp.dart';
-import '../auth_screens/verify.dart';
 import '../home.dart';
-import 'onboarding_page.dart';
 import 'offline_page.dart';
 
 class MysplashScreen extends StatefulWidget {
@@ -23,87 +18,39 @@ class MysplashScreen extends StatefulWidget {
 }
 
 class _MysplashScreenState extends State<MysplashScreen> {
-  final SignUpService _signUpService = SignUpService();
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
     super.initState();
-    // OPTIMIZATION 3: Initialize SignUpService for optimizations
-    _signUpService.initialize();
-    initTimer();
+    _authService.initialize();
+    _initTimer();
   }
 
   @override
   void dispose() {
-    _connectivityTimer?.cancel();
+    _authService.dispose();
     super.dispose();
   }
 
-
-  void initTimer() async {
-    // OPTIMIZATION 4: Reduced splash delay for better UX
+  void _initTimer() {
     Timer(const Duration(milliseconds: 1500), () async {
       await _checkInternetAndNavigate();
     });
   }
 
-  bool _isOnline = true;
-  Timer? _connectivityTimer;
-
-  // OPTIMIZATION 2: Cache admin status to prevent repeated Firestore calls
-  static bool? _cachedAdminStatus;
-  static String? _cachedAdminEmail;
-  static DateTime? _adminCacheTime;
-  static const Duration _adminCacheExpiry = Duration(hours: 1); // Cache for 1 hour
-
-
-
-
-  Future<void> _checkInternetAndNavigate() async {
-    // OPTIMIZATION 5: Enhanced internet check with caching
-    bool hasInternet = await _checkInternetConnection();
-    _isOnline = hasInternet;
-
-    // Update SignUpService connectivity state
-    _signUpService.setConnectionState(hasInternet);
-
-    if (!hasInternet) {
-      print('🌐 No internet connection, navigating to offline page');
-      _navigateToPage(OfflinePage());
-      return;
-    }
-
-    // If internet is available, proceed with optimized navigation
-    await _navigateBasedOnUserState();
-  }
-
-
-
-
-
-  // SIMPLE AND RELIABLE INTERNET CHECK
+  /// Check internet connectivity
   Future<bool> _checkInternetConnection() async {
     try {
       if (kIsWeb) {
-        // For web: Try to access Firebase Auth (it's what we need anyway)
+        // For web: Try to access Firebase Auth
         await FirebaseAuth.instance.currentUser?.reload();
         return true;
       } else {
-        // For mobile: Quick DNS lookup with multiple fallbacks
-        final hosts = ['google.com', 'firebase.google.com', '8.8.8.8'];
-
-        for (String host in hosts) {
-          try {
-            final result = await InternetAddress.lookup(host)
-                .timeout(Duration(seconds: 2));
-            if (result.isNotEmpty) {
-              return true;
-            }
-          } catch (e) {
-            continue; // Try next host
-          }
-        }
-        return false;
+        // For mobile: Quick DNS lookup
+        final result = await InternetAddress.lookup('google.com')
+            .timeout(Duration(seconds: 3));
+        return result.isNotEmpty;
       }
     } catch (e) {
       print('❌ Internet check failed: $e');
@@ -111,118 +58,73 @@ class _MysplashScreenState extends State<MysplashScreen> {
     }
   }
 
-  Future<void> _navigateBasedOnUserState() async {
+  Future<void> _checkInternetAndNavigate() async {
+    // Check internet connection
+    bool hasInternet = await _checkInternetConnection();
+    _authService.setConnectionState(hasInternet);
+
+    if (!hasInternet) {
+      print('🌐 No internet connection, navigating to offline page');
+      _navigateToPage(OfflinePage());
+      return;
+    }
+
+    // Navigate based on user authentication state
+    await _navigateBasedOnAuthState();
+  }
+
+  Future<void> _navigateBasedOnAuthState() async {
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      bool isIntroCompleted = true;
+      print('🔍 Checking authentication state...');
 
       // Wait for auth state to be ready
       await FirebaseAuth.instance.authStateChanges().first;
       User? user = FirebaseAuth.instance.currentUser;
 
-      if (user != null) {
-        // Enhanced user reload with retry logic
-        for (int i = 0; i < 3; i++) {
-          try {
-            await user?.reload();
-            user = FirebaseAuth.instance.currentUser;
-            print('🔄 User reload attempt ${i + 1}: emailVerified = ${user?.emailVerified}');
-
-            if (user?.emailVerified == true) {
-              break; // Successfully got verified state
-            }
-
-            if (i < 2) { // Don't delay on last attempt
-              await Future.delayed(Duration(milliseconds: 500));
-            }
-          } catch (e) {
-            print('⚠️ User reload attempt ${i + 1} failed: $e');
-          }
-        }
-      }
-
-      print('🔍 Splash Screen Navigation Check:');
-      print('📖 Intro completed: $isIntroCompleted');
-      print('👤 User logged in: ${user != null}');
-      print('✅ Email verified: ${user?.emailVerified}');
-
-      if (user != null) {
-        bool isAdmin = await _signUpService.getAdminStatus();
-
-        if (isAdmin) {
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          await prefs.setString('priority', 'admin');
-          print('🛡️ User is admin, navigating to AdminHomeScreen');
-          _navigateToPage(AdminHomeScreen());
-          return;
-        } else if (user.emailVerified) {
-          // NEW: Check for pending signup data even when logged in and verified
-          print('🔍 User verified, checking for pending signup data...');
-          bool hasPendingSignup = await _signUpService.hasPendingSignup();
-
-          if (hasPendingSignup) {
-            Map<String, String> pendingData = await _signUpService.getPendingSignupData();
-            String? pendingEmail = pendingData['email'];
-
-            print('⏳ Found pending signup for verified user, navigating to verify email page');
-            _navigateToPage(VerifyEmailPage(email: pendingEmail ?? ''));
-            return;
-          } else {
-            print('🏠 No pending signup, navigating to home screen (email verified)');
-            _navigateToPage(HomeScreen());
-            return;
-          }
-        } else {
-          print('✉️ Navigating to verify email page (user logged in but not verified)');
-          _navigateToPage(VerifyEmailPage(email: user.email ?? ''));
-          return;
-        }
-      }
-
-      // No logged in user: check pending signup
-      print('🔍 Checking for pending signup data...');
-      bool hasPendingSignup = await _signUpService.hasPendingSignup();
-
-      if (hasPendingSignup) {
-        Map<String, String> pendingData = await _signUpService.getPendingSignupData();
-        String? pendingEmail = pendingData['email'];
-
-        print('⏳ Found pending signup, navigating to verify email page');
-        _navigateToPage(VerifyEmailPage(email: pendingEmail ?? ''));
+      if (user == null) {
+        print('❌ No authenticated user, navigating to auth screen');
+        _navigateToPage(LandingPage());
         return;
       }
 
-      // Default to landing page
-      print('🔐 No pending signup, navigating to auth screen');
-      _navigateToPage(LandingPage());
+      print('✅ User authenticated: ${user.email}');
+
+      // Get user data and check type
+      final userData = await _authService.getUserData(user.email!);
+
+      if (userData == null) {
+        print('❌ User data not found in Firestore, signing out');
+        await _authService.signOut();
+        _navigateToPage(LandingPage());
+        return;
+      }
+
+      final userType = userData['userType']?.toString().toLowerCase() ?? 'user';
+      final isAdmin = userType == 'admin';
+
+      print('🏷️ User type: $userType, isAdmin: $isAdmin');
+
+      // Update last login
+      _authService.updateLastLogin(user.email!);
+
+      // Navigate based on user type
+      if (isAdmin) {
+        print('🛡️ Admin user, navigating to AdminHomeScreen');
+        _navigateToPage(AdminHomeScreen());
+      } else {
+        print('👤 Regular user, navigating to HomeScreen');
+        _navigateToPage(HomeScreen());
+      }
 
     } catch (e) {
       print('❌ Error in splash screen navigation: $e');
+      // Fallback to auth screen on any error
       _navigateToPage(LandingPage());
-    }
-  }
-
-  Future<bool> isCurrentUserAdmin() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    try {
-      final adminDoc = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(user.email)
-          .get();
-      return adminDoc.exists;
-    } catch (e) {
-      print('❌ Error checking admin status: $e');
-      return false;
     }
   }
 
   void _navigateToPage(Widget page) {
     if (mounted) {
-      // Clear any pending timers
-      _connectivityTimer?.cancel();
-
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => page),
             (Route<dynamic> route) => false,
@@ -240,13 +142,31 @@ class _MysplashScreenState extends State<MysplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // App Logo
             Image.asset(
               'assets/logo.png',
+              width: 120,
+              height: 120,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 32),
+
+            // Loading indicator
             CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(
-                isDarkMode ? Colors.white : Colors.orange,
+                isDarkMode ? Colors.white : const Color(0xFF6C5CE7),
+              ),
+              strokeWidth: 3,
+            ),
+
+            const SizedBox(height: 24),
+
+            // Loading text
+            Text(
+              'Loading...',
+              style: TextStyle(
+                color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],

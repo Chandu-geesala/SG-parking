@@ -18,7 +18,7 @@ class AdminHomeScreen extends StatefulWidget {
 }
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
-  final SignUpService _authService = SignUpService();
+  final AuthService _authService = AuthService();
   final BookingBackend _backend = BookingBackend();
   User? _currentUser;
   bool _isLoadingProfile = true;

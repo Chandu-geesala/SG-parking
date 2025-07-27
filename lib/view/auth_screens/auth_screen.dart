@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:park_sg/view/auth_screens/signUp.dart';
-import 'package:park_sg/view/auth_screens/verify.dart';
+
 
 import '../../viewModel/authService.dart';
 import '../forgot_password.dart';
@@ -23,7 +23,7 @@ class LandingPage extends StatefulWidget {
 class _LandingPageState extends State<LandingPage>
     with TickerProviderStateMixin {
   bool isExistingUser = true;
-  final SignUpService _signUpService = SignUpService();
+  final AuthService  _signUpService = AuthService ();
   bool isLoading = false;
 
   final GlobalKey<FormState> _formkey = GlobalKey<FormState>();
@@ -493,8 +493,7 @@ class _LandingPageState extends State<LandingPage>
                 _buildLoginFields(),
                 const SizedBox(height: 16),
                 _buildLoginButton(),
-                const SizedBox(height: 16),
-                _buildSignUpSection(),
+
               ],
             ),
           ),
@@ -718,61 +717,7 @@ class _LandingPageState extends State<LandingPage>
     );
   }
 
-  Widget _buildSignUpSection() {
-    return Column(
-      children: [
-        Text(
-          "Or",
-          style: TextStyle(
-              color: isDarkMode ? Colors.white70 : Colors.black54, // ADD: Dark mode support
-              fontSize: 16),
-        ),
-        const SizedBox(height: 10),
-        GestureDetector(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const SignUpPage(),
-                transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(1.0, 0.0),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
-                  );
-                },
-              ),
-            );
-          },
-          child:  Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(
-                'New Member? ',
-                style: TextStyle(
-                  color: isDarkMode ? Colors.white70 : Colors.black54, // ADD: Dark mode support
-                  fontSize: 16,
-                  fontFamily: 'Sathoshi',
-                ),
-              ),
-              Text(
-                'Register Now',
-                style: TextStyle(
-                  color: Colors.orange,
-                  fontSize: 18,
-                  fontFamily: "Noto",
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+
 
 
 
