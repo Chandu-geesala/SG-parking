@@ -6,6 +6,7 @@ import 'package:park_sg/view/admin/users.dart';
 import 'package:park_sg/viewModel/authService.dart';
 import '../../utils/theme_provider.dart';
 import '../../viewModel/bookingBackend.dart';
+import 'allocation.dart';
 import 'analytics.dart';
 import 'bookings.dart';
 import 'package:park_sg/utils/booking_cards.dart';
@@ -319,6 +320,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               );
                             },
                           ),
+
+                          _buildActionCard(
+                            icon: Icons.admin_panel_settings,
+                            title: 'Slots Allocation',
+                            subtitle: 'Allocate to Users',
+                            color: Colors.purple,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const AllocationUI(),
+                                ),
+                              );
+                            },
+                          ),
+
+
                           _buildActionCard(
                             icon: Icons.update,
                             title: 'Booking Data',
