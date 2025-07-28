@@ -5,6 +5,8 @@
 
   import '../../viewModel/bookingBackend.dart';
   import 'dart:async';
+
+import 'analytics.dart';
   class BookingDashboard extends StatefulWidget {
     const BookingDashboard({Key? key}) : super(key: key);
   
@@ -232,7 +234,6 @@
 
         // ✅ ENHANCED DEBUG: Final counts
         print('🔍 FINAL DEBUG Statistics for ${DateFormat('yyyy-MM-dd').format(targetDate)}:');
-        print('Total slots: $totalSlots');
         print('Booked slots count: $bookedCounts');
         print('Available slots raw count: ${availableSlots.length}');
         print('Available slots by vehicle FINAL: $availableCounts');
@@ -240,7 +241,6 @@
         print('Available slot IDs: $availableSlotIds');
 
         final statistics = {
-          'totalSlots': totalSlots,
           'bookedSlots': bookedCounts,
           'availableSlots': availableCounts, // This should now show correct count
           'unbookedSlots': unbookedCounts,
@@ -426,87 +426,154 @@
         ),
       );
     }
-  
-  
-  
-  
-  
+
+
+
+
+
     Widget _buildDateSelector() {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          bool isLargeScreen = constraints.maxWidth > 800;
-  
-          return Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Container(
-              padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6C5CE7), Color(0xFF74B9FF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+
+
+              Text(
+                'Date:',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Select Date',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isLargeScreen ? 20 : 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: isLargeScreen ? 20 : 16),
-                  // Responsive button layout
-                  isLargeScreen
-                      ? Row(
+              const SizedBox(width: 12),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: _buildDateButton('Today', 'today', Icons.today,
-                            DateFormat('MMM dd').format(DateTime.now())),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildDateButton('Tomorrow', 'tomorrow', Icons.calendar_month,
-                            DateFormat('MMM dd').format(DateTime.now().add(const Duration(days: 1)))),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildDateButton('Custom', 'custom', Icons.calendar_today,
-                            DateFormat('MMM dd').format(_selectedDate)),
-                      ),
-                    ],
-                  )
-                      : Row(
-                    children: [
-                      Expanded(
-                        child: _buildDateButton('Today', 'today', Icons.today,
-                            DateFormat('MMM dd').format(DateTime.now())),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildDateButton('Tomorrow', 'tomorrow', Icons.calendar_month,
-                            DateFormat('MMM dd').format(DateTime.now().add(const Duration(days: 1)))),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildDateButton('Custom', 'custom', Icons.calendar_today,
-                            DateFormat('MMM dd').format(_selectedDate)),
-                      ),
+                      _buildCompactDateChip('Today', 'today'),
+                      const SizedBox(width: 8),
+                      _buildCompactDateChip('Tomorrow', 'tomorrow'),
+                      const SizedBox(width: 8),
+
+                      _buildCompactDateChipWithIcon('Custom', 'custom', Icons.calendar_today),
+
+
+
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
-          );
-        },
+
+            ],
+          ),
+        ),
       );
     }
-  
+
+    Widget _buildCompactDateChip(String title, String type) {
+      final isSelected = _selectedDateType == type;
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+
+      return GestureDetector(
+        onTap: () async {
+          if (type == 'custom') {
+            await _selectDate();
+          } else {
+            setState(() => _selectedDateType = type);
+            _onDateTypeChanged(type);
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
+              width: 1,
+            ),
+          ),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget _buildCompactDateChipWithIcon(String title, String type, IconData icon) {
+      final isSelected = _selectedDateType == type;
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+
+      return GestureDetector(
+        onTap: () async {
+          if (type == 'custom') {
+            await _selectDate();
+          } else {
+            setState(() => _selectedDateType = type);
+            _onDateTypeChanged(type);
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon,
+                  size: 14,
+                  color: isSelected
+                      ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                      : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600])),
+              const SizedBox(width: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isSelected
+                      ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                      : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+
+
     Widget _buildDateButton(String title, String type, IconData icon, String date) {
       final isSelected = _selectedDateType == type;
   
@@ -574,8 +641,10 @@
         ),
       );
     }
-  
-  
+
+
+
+
     Widget _buildSlotStatistics() {
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -583,80 +652,61 @@
           final isDark = theme.brightness == Brightness.dark;
           final colorScheme = theme.colorScheme;
           bool isLargeScreen = constraints.maxWidth > 800;
-  
+
           return Card(
             elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             color: isDark ? colorScheme.surface : null,
             child: Container(
-              padding: EdgeInsets.all(isLargeScreen ? 24 : 20),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.dashboard,
-                        color: isDark ? colorScheme.primary : const Color(0xFF6C5CE7),
-                        size: isLargeScreen ? 24 : 22,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Live Dashboard - ${_getDateTitle()}',
-                          style: TextStyle(
-                            fontSize: isLargeScreen ? 18 : 16,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? colorScheme.onSurface : const Color(0xFF2D3748),
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    'Live Dashboard - ${_getDateTitle()}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? colorScheme.onSurface : const Color(0xFF2D3748),
+                    ),
                   ),
-                  SizedBox(height: isLargeScreen ? 20 : 16),
-  
+                  const SizedBox(height: 12),
+
                   if (_isLoading)
                     Container(
-                      height: 200,
+                      height: 60,
                       child: Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            isDark ? colorScheme.primary : const Color(0xFF6C5CE7),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              isDark ? colorScheme.primary : const Color(0xFF6C5CE7),
+                            ),
                           ),
                         ),
                       ),
                     )
                   else if (_slotStatistics.isEmpty)
                     Container(
-                      height: 200,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: isLargeScreen ? 64 : 48,
-                            color: isDark
-                                ? colorScheme.onSurface.withOpacity(0.4)
-                                : const Color(0xFF718096).withOpacity(0.5),
+                      height: 60,
+                      child: Center(
+                        child: Text(
+                          'No data available',
+                          style: TextStyle(
+                            color: isDark ? colorScheme.onSurfaceVariant : const Color(0xFF718096),
+                            fontSize: 12,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Unable to load statistics for ${_getDateTitle().toLowerCase()}',
-                            style: TextStyle(
-                              color: isDark ? colorScheme.onSurfaceVariant : const Color(0xFF718096),
-                              fontSize: isLargeScreen ? 16 : 14,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     )
                   else
                     Column(
                       children: [
-                        _buildVehicleTypeStatistics('CAR', Icons.directions_car, Colors.blue),
-                        SizedBox(height: isLargeScreen ? 20 : 16),
-                        _buildVehicleTypeStatistics('BIKE', Icons.two_wheeler, Colors.green),
+                        _buildBeautifulVehicleRow('CAR', const Color(0xFF3B82F6)),
+                        const SizedBox(height: 8),
+                        _buildBeautifulVehicleRow('BIKE', const Color(0xFF10B981)),
                       ],
                     ),
                 ],
@@ -666,13 +716,135 @@
         },
       );
     }
-  
+
+    Widget _buildBeautifulVehicleRow(String vehicleType, Color primaryColor) {
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+      final colorScheme = theme.colorScheme;
+
+      final booked = _slotStatistics['bookedSlots']?[vehicleType] ?? 0;
+      final available = _slotStatistics['availableSlots']?[vehicleType] ?? 0;
+      final unbooked = _slotStatistics['unbookedSlots']?[vehicleType] ?? 0;
+
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              primaryColor.withOpacity(0.05),
+              primaryColor.withOpacity(0.02),
+            ],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: primaryColor.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Vehicle type with colored indicator
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                vehicleType,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: primaryColor,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 12),
+
+            // Stats in a clean row
+            Expanded(
+              child: Row(
+                children: [
+                  _buildMiniStatChip('Booked', booked, const Color(0xFFEF4444), vehicleType),
+                  const SizedBox(width: 6),
+                  _buildMiniStatChip('Available', available, const Color(0xFFF59E0B), vehicleType),
+                  const SizedBox(width: 6),
+                  _buildMiniStatChip('Unbooked', unbooked, const Color(0xFF6B7280), vehicleType),
+                ],
+              ),
+            ),
+
+            // Total count badge
+          ],
+        ),
+      );
+    }
+
+    Widget _buildMiniStatChip(String label, int count, Color color, String vehicleType) {
+      final theme = Theme.of(context);
+      final colorScheme = theme.colorScheme;
+      final isSelected = _selectedVehicleType == vehicleType && _selectedSlotStatus == label.toLowerCase();
+
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => _onStatCardTapped(label.toLowerCase(), vehicleType),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? color.withOpacity(0.2)
+                  : color.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(6),
+              border: isSelected
+                  ? Border.all(color: color, width: 1.5)
+                  : Border.all(color: color.withOpacity(0.2), width: 1),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: color.withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ] : null,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? color : colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: isSelected ? color : colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+
+
     Widget _buildVehicleTypeStatistics(String vehicleType, IconData icon, Color color) {
       final theme = Theme.of(context);
       final isDark = theme.brightness == Brightness.dark;
       final colorScheme = theme.colorScheme;
   
-      final total = _slotStatistics['totalSlots']?[vehicleType] ?? 0;
+
       final booked = _slotStatistics['bookedSlots']?[vehicleType] ?? 0;
       final available = _slotStatistics['availableSlots']?[vehicleType] ?? 0;
       final unbooked = _slotStatistics['unbookedSlots']?[vehicleType] ?? 0;
@@ -708,22 +880,7 @@
                     color: colorScheme.onSurface,
                   ),
                 ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Total: $total',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+
               ],
             ),
             const SizedBox(height: 16),
@@ -948,7 +1105,7 @@
         },
       );
     }
-  
+
     Widget _buildCompactBookingCard(Map<String, dynamic> booking) {
       final bookingData = booking['bookingData'] as Map<String, dynamic>;
       final slotId = booking['slotId'] as String;
@@ -1390,15 +1547,10 @@
             children: [
               Row(
                 children: [
-                  Icon(
-                    Icons.filter_list,
-                    color: colorScheme.primary,
-                    size: 24,
-                  ),
-                  const SizedBox(width: 8),
+
                   Expanded(
                     child: Text(
-                      '${_selectedSlotStatus?.toUpperCase()} ${_selectedVehicleType} Slots - ${_getDateTitle()}',
+                      '${_selectedSlotStatus?.toUpperCase()}  Slots - ${_getDateTitle()}',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -1998,11 +2150,15 @@
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+
               _buildDateSelector(),
               SizedBox(height: isLargeScreen ? 24 : 20),
               _buildSlotStatistics(),
               SizedBox(height: isLargeScreen ? 24 : 20),
-              _buildFilteredSlotsList(), // Changed from _buildAvailableSlotsList()
+              _buildFilteredSlotsList(),
+              SizedBox(height: isLargeScreen ? 24 : 20),
+              const  AnalyticsExportWidget(),
+              // Changed from _buildAvailableSlotsList()
             ],
           );
         },

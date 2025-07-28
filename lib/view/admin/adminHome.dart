@@ -310,7 +310,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             icon: Icons.local_parking,
                             title: 'All Slots',
                             subtitle: 'Manage privileges',
-                            color: Colors.purple,
+                            color: Colors.blueAccent,
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -351,34 +351,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               );
                             },
                           ),
-                          _buildActionCard(
-                            icon: Icons.remove_from_queue,
-                            title: 'Requests',
-                            subtitle: 'Manage privileges',
-                            color: Colors.orangeAccent,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const RequestsPage(),
-                                ),
-                              );
-                            },
-                          ),
-                          _buildActionCard(
-                            icon: Icons.analytics_outlined,
-                            title: 'Analytics',
-                            subtitle: 'View insights',
-                            color: Colors.teal,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => AnalyticsPage(),
-                                ),
-                              );
-                            },
-                          ),
+
+                          // _buildActionCard(
+                          //   icon: Icons.remove_from_queue,
+                          //   title: 'Requests',
+                          //   subtitle: 'Manage privileges',
+                          //   color: Colors.orangeAccent,
+                          //   onTap: () {
+                          //     Navigator.push(
+                          //       context,
+                          //       MaterialPageRoute(
+                          //         builder: (context) => const RequestsPage(),
+                          //       ),
+                          //     );
+                          //   },
+                          // ),
+
+
                         ],
                       );
                     },
