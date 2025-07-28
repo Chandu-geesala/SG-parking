@@ -339,8 +339,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                           _buildActionCard(
                             icon: Icons.update,
-                            title: 'Booking Data',
-                            subtitle: 'Manage privileges',
+                            title: 'Booking Dashboard',
+                            subtitle: '',
                             color: Colors.greenAccent,
                             onTap: () {
                               Navigator.push(

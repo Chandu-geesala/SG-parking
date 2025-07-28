@@ -241,6 +241,66 @@ class BookingBackend {
     }
   }
 
+
+  Future<List<Map<String, dynamic>>> getUnbookedAvailableSlotsForDate({
+    required DateTime date,
+    String? vehicleTypeFilter,
+  }) async {
+    try {
+      final dateStr = _formatDateForDocId(date);
+
+      // Query AvailableToday collection for slots with status 'notbooked'
+      Query query = _firestore
+          .collection('Bookings')
+          .doc(dateStr)
+          .collection('AvailableToday')
+          .where('status', isEqualTo: 'notbooked');
+
+      // Add vehicle type filter if specified
+      if (vehicleTypeFilter != null) {
+        query = query.where('vehicleType', isEqualTo: vehicleTypeFilter.toUpperCase());
+      }
+
+      final availabilityQuery = await query.get();
+
+      List<Map<String, dynamic>> unbookedSlots = [];
+
+      for (var doc in availabilityQuery.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final slotId = data['slotId'] as String;
+        final vehicleType = data['vehicleType'] as String? ?? 'BIKE';
+        final slotUsers = data['slotUsers'] as int? ?? 0;
+        final declarations = List<Map<String, dynamic>>.from(data['declarations'] ?? []);
+        final status = data['status'] as String? ?? 'notbooked';
+
+        // Only include slots that are actually unbooked
+        if (status == 'notbooked') {
+          unbookedSlots.add({
+            'slotId': slotId,
+            'vehicleType': vehicleType,
+            'slotUsers': slotUsers,
+            'declarationsCount': declarations.length,
+            'declarations': declarations,
+            'date': dateStr,
+            'status': status,
+            'isAvailable': true,
+          });
+        }
+      }
+
+      // Sort by slot ID for consistent ordering
+      unbookedSlots.sort((a, b) => a['slotId'].toString().compareTo(b['slotId'].toString()));
+
+      return unbookedSlots;
+    } catch (e) {
+      print('Error getting unbooked available slots for date: $e');
+      return [];
+    }
+  }
+
+
+
+
 // ✅ ADD - Helper method to get user-friendly date names
   String _getDateDisplayName(DateTime date) {
     final today = DateTime.now();

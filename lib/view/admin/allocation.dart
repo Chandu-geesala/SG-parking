@@ -1199,7 +1199,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
 
   String _determinePriority() {
     if (_allocatedPersons.isEmpty) {
-      return 'TEMPORARY';
+      return 'UNALLOCATED';
     } else if (_allocatedPersons.length > 1) {
       return 'HYBRID';
     } else {
@@ -2120,7 +2120,7 @@ class SlotPeriodManager {
 
           // Update slot priority based on remaining allocations
           if (activeAllocations.isEmpty) {
-            updatedData['slotPriority'] = 'TEMPORARY';
+            updatedData['slotPriority'] = 'UNALLOCATED';
           } else if (activeAllocations.length > 1) {
             updatedData['slotPriority'] = 'HYBRID';
           } else {
