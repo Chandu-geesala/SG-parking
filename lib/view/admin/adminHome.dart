@@ -315,7 +315,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const DataUploadUI(),
+                                  builder: (context) => const ParkingSlotsPage(),
                                 ),
                               );
                             },

@@ -8,8 +8,6 @@ import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 
 
-
-
 // SHARED utilities to reduce redundancy with slot backend
 class FileProcessingUtils {
   // Shared cache for email validation
