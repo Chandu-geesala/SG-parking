@@ -16,7 +16,7 @@ import 'analytics.dart';
   
   class _BookingDashboardState extends State<BookingDashboard>
       with SingleTickerProviderStateMixin {
-  
+    final BookingBackend _backend = BookingBackend();
   
   
     late TabController _tabController;
@@ -1221,7 +1221,7 @@ import 'analytics.dart';
           Text(
             label,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: colorScheme.onSurfaceVariant,
             ),
@@ -1230,7 +1230,7 @@ import 'analytics.dart';
           Text(
             value,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               color: colorScheme.onSurface,
             ),
             overflow: TextOverflow.ellipsis,
@@ -1401,34 +1401,7 @@ import 'analytics.dart';
       }
     }
   
-    void _showExportDialog() {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Export Booking Data'),
-          content: const Text('Select date range to export booking data to Excel file.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Export functionality to be implemented')),
-                );
-              },
-              child: const Text('Export'),
-            ),
-          ],
-        ),
-      );
-    }
-  
-    // Add this to your _BookingDashboardState class variables:
-  
-  
+
   // Add this method to load available slots
     Future<void> _loadAvailableSlots() async {
       setState(() => _isLoadingSlots = true);
@@ -1508,6 +1481,7 @@ import 'analytics.dart';
 
 
 
+
     Widget _buildFilteredSlotsList() {
       if (_selectedVehicleType == null || _selectedSlotStatus == null) {
         return Card(
@@ -1515,16 +1489,25 @@ import 'analytics.dart';
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
             padding: const EdgeInsets.all(24),
-            height: 200,
+            width: double.infinity, // Ensure full width
+            constraints: const BoxConstraints(minHeight: 200),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center, // Center align content
               children: [
                 Icon(Icons.touch_app, size: 64, color: Colors.grey.withOpacity(0.5)),
                 const SizedBox(height: 16),
-                Text(
-                  'Tap on any statistic card above to view related slots',
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
-                  textAlign: TextAlign.center,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400), // Limit text width for better readability
+                  child: Text(
+                    'Tap on any statistic card above to view related slots',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 16,
+                      height: 1.4, // Better line height
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ],
             ),
@@ -1542,15 +1525,15 @@ import 'analytics.dart';
         color: isDark ? colorScheme.surface : null,
         child: Container(
           padding: const EdgeInsets.all(24),
+          width: double.infinity, // Ensure full width
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-
                   Expanded(
                     child: Text(
-                      '${_selectedSlotStatus?.toUpperCase()}  Slots - ${_getDateTitle()}',
+                      '${_selectedSlotStatus?.toUpperCase()} Slots - ${_getDateTitle()}',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -1558,42 +1541,38 @@ import 'analytics.dart';
                       ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_filteredSlots.length} Found',
-                      style: TextStyle(
-                        color: colorScheme.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+
                 ],
               ),
               const SizedBox(height: 20),
 
               if (_isLoadingFilteredSlots)
                 Container(
+                  width: double.infinity, // Full width for loading state
                   height: 150,
                   child: Center(child: CircularProgressIndicator()),
                 )
               else if (_filteredSlots.isEmpty)
                 Container(
-                  height: 150,
+                  width: double.infinity, // Ensure full width
+                  constraints: const BoxConstraints(minHeight: 150),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center, // Center align content
                     children: [
                       Icon(Icons.search_off, size: 48, color: Colors.grey.withOpacity(0.5)),
                       const SizedBox(height: 16),
-                      Text(
-                        'No ${_selectedSlotStatus} ${_selectedVehicleType?.toLowerCase()} slots found for ${_getDateTitle().toLowerCase()}',
-                        style: TextStyle(color: Colors.grey, fontSize: 14),
-                        textAlign: TextAlign.center,
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 500), // Limit text width for better readability
+                        child: Text(
+                          'No ${_selectedSlotStatus} ${_selectedVehicleType?.toLowerCase()} slots found for ${_getDateTitle().toLowerCase()}',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 14,
+                            height: 1.4, // Better line height
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     ],
                   ),
@@ -1606,211 +1585,169 @@ import 'analytics.dart';
       );
     }
 
-    Widget _buildFilteredSlotsContent() {
-      if (_selectedSlotStatus == 'booked') {
-        // For booked slots, use the booking card since data structure matches
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _filteredSlots.length,
-          itemBuilder: (context, index) => _buildBookingCard(_filteredSlots[index]),
-        );
-      } else {
-        // For available and unbooked slots, use a generic slot card
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _filteredSlots.length,
-          itemBuilder: (context, index) => _buildGenericSlotCard(_filteredSlots[index]),
-        );
-      }
-    }
 
 
-    Widget _buildGenericSlotCard(Map<String, dynamic> slot) {
+
+    Widget _buildCompactSlotCard(Map<String, dynamic> slot) {
       final theme = Theme.of(context);
       final colorScheme = theme.colorScheme;
       final isDark = theme.brightness == Brightness.dark;
 
-      // Extract common fields, handle different data structures
+      // Extract data based on slot status
       String slotId = '';
       String vehicleType = '';
       String status = _selectedSlotStatus ?? 'unknown';
-      List<dynamic>? allotedTo;
-      String? slotPriority;
+      String primaryInfo = '';
+      String secondaryInfo = '';
+      List<Widget> detailChips = [];
+      List<String> emails = []; // ✅ MOVED OUTSIDE - Now accessible throughout the method
 
-      // Handle different data structures
-      if (slot.containsKey('slotId')) {
+      if (_selectedSlotStatus == 'booked') {
+        // Handle booked slots
         slotId = slot['slotId'] as String? ?? '';
+        final bookingData = slot['bookingData'] as Map<String, dynamic>? ?? {};
+        vehicleType = (bookingData['vehicleType'] as String? ?? 'BIKE').toUpperCase();
+        primaryInfo = bookingData['userName'] as String? ?? 'Unknown User';
+        secondaryInfo = bookingData['bookedBy'] as String? ?? 'Unknown';
+
+        // Add booking-specific details
+        if (bookingData['bookedAt'] != null) {
+          final bookedAt = DateFormat('MMM dd, HH:mm').format(
+            (bookingData['bookedAt'] as Timestamp).toDate(),
+          );
+          detailChips.add(_buildDetailChip('Booked At', bookedAt, Icons.access_time));
+        }
+      } else {
+        // Handle available/unbooked slots
+        slotId = slot['slotId'] as String? ?? '';
+
+        if (slot.containsKey('vehicleType')) {
+          vehicleType = (slot['vehicleType'] as String? ?? 'BIKE').toUpperCase();
+        } else if (slot.containsKey('slotData') && slot['slotData'] is Map) {
+          final slotData = slot['slotData'] as Map<String, dynamic>;
+          vehicleType = (slotData['vehicleType'] as String? ?? 'BIKE').toUpperCase();
+        }
+
+        // ✅ FIXED: Extract emails logic - now emails list is accessible
+        if (slot.containsKey('slotData') && slot['slotData'] is Map) {
+          final slotData = slot['slotData'] as Map<String, dynamic>;
+          if (slotData.containsKey('alloted_to') && slotData['alloted_to'] is List) {
+            final allotedTo = slotData['alloted_to'] as List;
+            if (allotedTo.isNotEmpty) {
+              // Extract emails from the alloted_to list
+              for (var item in allotedTo) {
+                if (item is Map<String, dynamic> && item.containsKey('email')) {
+                  emails.add(item['email'] as String);
+                }
+              }
+            }
+          }
+        } else if (slot.containsKey('allotedUsers') && slot['allotedUsers'] is List) {
+          // Fallback: if allotedUsers is available at slot level
+          final allotedUsers = slot['allotedUsers'] as List;
+          if (allotedUsers.isNotEmpty) {
+            for (var item in allotedUsers) {
+              if (item is Map<String, dynamic> && item.containsKey('email')) {
+                emails.add(item['email'] as String);
+              }
+            }
+          }
+        }
+
+        // ✅ Set primaryInfo based on emails count
+        primaryInfo = emails.isNotEmpty ? 'Alloted To ${emails.length} user(s)' : '';
+
+        if (slot.containsKey('slotPriority')) {
+          secondaryInfo = (slot['slotPriority'] as String? ?? '').toUpperCase();
+          if (secondaryInfo.isNotEmpty) {
+            // With this:
+            detailChips.add(_buildTextOnlyChip('Priority', secondaryInfo));
+          }
+        }
       }
 
-      if (slot.containsKey('vehicleType')) {
-        vehicleType = (slot['vehicleType'] as String? ?? 'BIKE').toUpperCase();
-      }
+      // Get vehicle icon and color
+      Color vehicleColor = vehicleType == 'CAR' ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
+      IconData vehicleIcon = vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler;
 
-      if (slot.containsKey('alloted_to')) {
-        allotedTo = slot['alloted_to'] as List<dynamic>?;
-      }
-
-      if (slot.containsKey('slotPriority')) {
-        slotPriority = slot['slotPriority'] as String?;
-      }
-
-      // Get status color
-      Color statusColor;
-      IconData statusIcon;
-      switch (status) {
-        case 'available':
-          statusColor = Colors.orange;
-          statusIcon = Icons.event_available;
-          break;
-        case 'unbooked':
-          statusColor = Colors.grey;
-          statusIcon = Icons.event_note;
-          break;
-        default:
-          statusColor = Colors.blue;
-          statusIcon = Icons.info;
-      }
-
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Card(
-          elevation: isDark ? 4 : 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          color: isDark ? colorScheme.surface : null,
-          shadowColor: isDark ? Colors.black.withOpacity(0.3) : null,
-          surfaceTintColor: isDark ? colorScheme.surfaceVariant : null,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: statusColor.withOpacity(0.3),
-              ),
+      return Card(
+        margin: const EdgeInsets.all(2),
+        elevation: isDark ? 3 : 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        color: isDark ? colorScheme.surface : null,
+        shadowColor: isDark ? Colors.black.withOpacity(0.2) : null,
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: vehicleColor.withOpacity(0.3),
+              width: 1,
             ),
+          ),
+
+
+          child: Padding(
+            padding: EdgeInsets.only(bottom: _selectedSlotStatus == 'booked' ? 12.0 : 4.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
+                // Header with slot info
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
-                        color: statusColor,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Slot $slotId',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                              color: colorScheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            vehicleType.isEmpty ? 'Unknown Vehicle' : vehicleType,
-                            style: TextStyle(
-                              color: colorScheme.onSurfaceVariant,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
+                        color: vehicleColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(statusIcon, size: 12, color: statusColor),
-                          const SizedBox(width: 4),
-                          Text(
-                            status.toUpperCase(),
-                            style: TextStyle(
-                              color: statusColor,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                      child: Icon(
+                        vehicleIcon,
+                        color: vehicleColor,
+                        size: 16,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Slot $slotId',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: colorScheme.onSurface,
+                        ),
                       ),
                     ),
                   ],
                 ),
 
-                // Show priority if available
-                if (slotPriority != null) ...[
-                  const SizedBox(height: 12),
+                if (primaryInfo.isNotEmpty) ...[
+                  const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     decoration: BoxDecoration(
                       color: isDark
                           ? colorScheme.surfaceVariant.withOpacity(0.3)
                           : const Color(0xFFF7FAFC),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          Icons.priority_high,
-                          size: 16,
+                          _selectedSlotStatus == 'booked' ? Icons.person : Icons.group,
+                          size: 12,
                           color: colorScheme.onSurfaceVariant,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Priority: ${slotPriority!.toUpperCase()}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurface,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // Show alloted users if available
-                if (allotedTo != null && allotedTo!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? colorScheme.surfaceVariant.withOpacity(0.3)
-                          : const Color(0xFFF7FAFC),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.person,
-                          size: 16,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            'Alloted to: ${allotedTo!.join(', ')}',
+                            primaryInfo,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: colorScheme.onSurface,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -1819,50 +1756,670 @@ import 'analytics.dart';
                   ),
                 ],
 
-                // Show additional slot data if available
-                if (slot.containsKey('slotData')) ...[
-                  const SizedBox(height: 12),
+                if (emails.isNotEmpty && _selectedSlotStatus != 'booked') ...[
+                  const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                     decoration: BoxDecoration(
                       color: isDark
-                          ? colorScheme.surfaceVariant.withOpacity(0.3)
-                          : const Color(0xFFF7FAFC),
-                      borderRadius: BorderRadius.circular(8),
+                          ? colorScheme.primaryContainer.withOpacity(0.1)
+                          : colorScheme.primaryContainer.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: colorScheme.primary.withOpacity(0.2),
+                        width: 0.5,
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.email_outlined,
+                              size: 10,
+                              color: colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Alloted Emails:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        ...emails.map((email) => Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 14),
+                              Icon(
+                                Icons.person_outline,
+                                size: 10,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  email,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: colorScheme.onSurface,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                          ),
+                        )).toList(),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (detailChips.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    children: detailChips,
+                  ),
+                ],
+
+                if (_selectedSlotStatus == 'booked' && secondaryInfo.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.admin_panel_settings,
+                        size: 10,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          'Booked by: $secondaryInfo',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: colorScheme.onSurfaceVariant,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
+              ],
+            ),
+          ),
+
+
+
+        ),
+      );
+    }
+
+
+
+    Color _getVehicleColor(String vehicleType) {
+      switch (vehicleType.toUpperCase()) {
+        case 'CAR':
+          return Colors.blue[600]!;
+        case 'BIKE':
+          return Colors.orange[600]!;
+        default:
+          return Colors.grey[600]!;
+      }
+    }
+
+
+
+
+    IconData _getVehicleIcon(String vehicleType) {
+      switch (vehicleType.toUpperCase()) {
+        case 'CAR':
+          return Icons.directions_car_rounded;
+        case 'BIKE':
+          return Icons.two_wheeler_rounded;
+        default:
+          return Icons.local_parking_rounded;
+      }
+    }
+
+
+    Widget _buildTextOnlyChip(String label, String value) {
+      final theme = Theme.of(context);
+      final colorScheme = theme.colorScheme;
+      final isDark = theme.brightness == Brightness.dark;
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: isDark
+              ? colorScheme.primaryContainer.withOpacity(0.3)
+              : colorScheme.primaryContainer.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '$label: $value',
+          style: TextStyle(
+            fontSize: 8,
+            color: colorScheme.onPrimaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }
+
+
+
+
+// 🎯 UPDATED GRID WITH OPTIMIZED SPACING AND ASPECT RATIOS
+    Widget _buildFilteredSlotsContent() {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          bool isLargeScreen = constraints.maxWidth > 800;
+
+
+          // For available slots, always use list view to show detailed info
+          if (_selectedSlotStatus == 'available') {
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _filteredSlots.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) => _buildEnhancedAvailableSlotCard(_filteredSlots[index]),
+            );
+          }
+
+
+          if (isLargeScreen) {
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                // 🎯 FORCE 3 COLUMNS FOR BETTER SPACE UTILIZATION
+                crossAxisCount: constraints.maxWidth > 900 ? 3 : 2, // Force 3 columns earlier
+                crossAxisSpacing: 4, // Minimal spacing
+                mainAxisSpacing: 4,   // Minimal spacing
+                childAspectRatio: _selectedSlotStatus == 'booked'
+                    ? 1.7  // Slightly taller for booked slots (has more content)
+                    : 1.6, // Slightly taller for available/unbooked // Much wider cards for available/unbooked
+
+
+              ),
+              itemCount: _filteredSlots.length,
+              itemBuilder: (context, index) => _buildCompactSlotCard(_filteredSlots[index]),
+            );
+          } else {
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _filteredSlots.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 4), // ✅ Further reduced from 8
+              itemBuilder: (context, index) => _buildCompactSlotCard(_filteredSlots[index]),
+            );
+          }
+        },
+      );
+    }
+
+// 🎯 ULTRA-COMPACT DETAIL CHIP
+    Widget _buildDetailChip(String label, String value, IconData icon) {
+      final theme = Theme.of(context);
+      final colorScheme = theme.colorScheme;
+      final isDark = theme.brightness == Brightness.dark;
+
+      return Container(
+        // 🎯 MINIMAL CHIP PADDING
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // ✅ Further reduced
+        decoration: BoxDecoration(
+          color: isDark
+              ? colorScheme.primaryContainer.withOpacity(0.3)
+              : colorScheme.primaryContainer.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(8), // ✅ Further reduced from 10
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 8, // ✅ Further reduced from 10
+              color: colorScheme.onPrimaryContainer,
+            ),
+            const SizedBox(width: 2), // ✅ Further reduced from 4
+            Flexible(
+              child: Text(
+                '$label: $value',
+                style: TextStyle(
+                  fontSize: 8, // ✅ Further reduced from 9
+                  color: colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget _buildEnhancedAvailableSlotCard(Map<String, dynamic> slot) {
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+      final colorScheme = theme.colorScheme;
+
+      // Extract slot data - handle both data structures
+      final slotId = slot['slotId'] as String? ?? '';
+      final vehicleType = _extractVehicleType(slot);
+
+      // For available slots from dashboard, we need to fetch detailed info
+      return FutureBuilder<Map<String, dynamic>?>(
+        future: _getDetailedSlotInfo(slotId),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return _buildLoadingSlotCard(slotId, vehicleType);
+          }
+
+          final detailedSlot = snapshot.data ?? slot;
+          return _buildDetailedAvailableSlotCard(detailedSlot);
+        },
+      );
+    }
+
+    Widget _buildDetailedAvailableSlotCard(Map<String, dynamic> slot) {
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+      final colorScheme = theme.colorScheme;
+
+      // Extract detailed slot information
+      final slotId = slot['slotId'] as String? ?? '';
+      final vehicleType = _extractVehicleType(slot);
+      final slotUsers = slot['slotUsers'] as int? ?? 0;
+      final declarationsCount = slot['declarationsCount'] as int? ?? 0;
+      final declarations = List<Map<String, dynamic>>.from(slot['declarations'] ?? []);
+      final slotData = slot['slotData'] as Map<String, dynamic>?;
+      final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
+
+      // Availability status
+      final isFullyAvailable = slot['isFullyAvailable'] as bool? ?? false;
+
+      // Vehicle styling
+      final vehicleColor = vehicleType == 'CAR' ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
+      final vehicleIcon = vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler;
+
+      return Card(
+        margin: const EdgeInsets.only(bottom: 16),
+        elevation: isDark ? 4 : 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: isDark ? colorScheme.surface : Colors.white,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isFullyAvailable
+                  ? Colors.green.withOpacity(0.3)
+                  : Colors.orange.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: vehicleColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      vehicleIcon,
+                      color: vehicleColor,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          'Additional Information:',
+                          slotId.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          '$vehicleType • ${slotData?['slotPriority'] ?? 'permanent'}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurface.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Availability status badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isFullyAvailable ? Colors.green[100] : Colors.orange[100],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isFullyAvailable ? Colors.green[300]! : Colors.orange[300]!,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isFullyAvailable ? Icons.check_circle : Icons.access_time,
+                          size: 14,
+                          color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isFullyAvailable ? 'Fully Available' : 'Partially Available',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: colorScheme.onSurfaceVariant,
+                            color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          slot['slotData'].toString(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
                 ],
+              ),
+
+
+
+              const SizedBox(height: 12),
+
+              // Slot Users - Direct display (no dropdown)
+              if (allotedUsers.isNotEmpty) ...[
+                // Section header
+                Text(
+                  'Slot Users (${allotedUsers.length})',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Users container with background
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? colorScheme.surfaceVariant.withOpacity(0.3)
+                        : const Color(0xFFF8F9FA),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark
+                          ? colorScheme.outline.withOpacity(0.2)
+                          : Colors.grey.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Column(
+                    children: allotedUsers.map((user) {
+                      final userEmail = user['email'] as String? ?? '';
+                      final userName = user['name'] as String? ?? _getUserNameFromEmail(userEmail);
+
+                      // Check if this user has declared
+                      final userDeclaration = declarations.firstWhere(
+                            (d) => d['declaredBy'] == userEmail,
+                        orElse: () => <String, dynamic>{},
+                      );
+
+                      final hasDeclaration = userDeclaration.isNotEmpty;
+                      final reason = userDeclaration['reason'] as String?;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            // Status indicator dot
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: hasDeclaration
+                                    ? _getReasonColor(reason ?? 'unavailable')
+                                    : Colors.grey[400],
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 2,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+
+                            // User info
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    userName.isNotEmpty ? userName : userEmail.split('@').first,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  if (userName.isNotEmpty && userName != userEmail.split('@').first)
+                                    Text(
+                                      userEmail,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: colorScheme.onSurface.withOpacity(0.6),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                            // Status badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: hasDeclaration
+                                    ? _getReasonColor(reason ?? 'unavailable').withOpacity(0.15)
+                                    : Colors.grey.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: hasDeclaration
+                                      ? _getReasonColor(reason ?? 'unavailable').withOpacity(0.3)
+                                      : Colors.grey.withOpacity(0.3),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                hasDeclaration
+                                    ? _getReasonDisplayText(reason ?? 'unavailable')
+                                    : 'Pending',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: hasDeclaration
+                                      ? _getReasonColor(reason ?? 'unavailable')
+                                      : Colors.grey[600],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
               ],
-            ),
+            ],
           ),
         ),
       );
     }
 
-  // Grid layout for available slots (large screens)
+
+    Widget _buildLoadingSlotCard(String slotId, String vehicleType) {
+      final theme = Theme.of(context);
+      final colorScheme = theme.colorScheme;
+      final vehicleColor = vehicleType == 'CAR' ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
+      final vehicleIcon = vehicleType == 'CAR' ? Icons.directions_car : Icons.two_wheeler;
+
+      return Card(
+        margin: const EdgeInsets.only(bottom: 16),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: vehicleColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      vehicleIcon,
+                      color: vehicleColor,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      slotId.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+// Helper methods you'll need to add:
+
+    String _extractVehicleType(Map<String, dynamic> slot) {
+      if (slot.containsKey('vehicleType')) {
+        return (slot['vehicleType'] as String? ?? 'BIKE').toUpperCase();
+      } else if (slot.containsKey('slotData') && slot['slotData'] is Map) {
+        final slotData = slot['slotData'] as Map<String, dynamic>;
+        return (slotData['vehicleType'] as String? ?? 'BIKE').toUpperCase();
+      }
+      return 'BIKE';
+    }
+
+    Future<Map<String, dynamic>?> _getDetailedSlotInfo(String slotId) async {
+      try {
+        // Use your existing backend method to get detailed slot info
+        DateTime targetDate = _getTargetDateFromSelection();
+
+        final detailedSlots = await BookingBackend().getAvailableSlotsWithUserDetails(
+          date: targetDate,
+          vehicleTypeFilter: null, // Get all types
+        );
+
+        // Find the specific slot
+        return detailedSlots.firstWhere(
+              (slot) => slot['slotId'] == slotId,
+          orElse: () => <String, dynamic>{},
+        );
+      } catch (e) {
+        print('Error fetching detailed slot info: $e');
+        return null;
+      }
+    }
+
+    DateTime _getTargetDateFromSelection() {
+      switch (_selectedDateType) {
+        case 'today':
+          return DateTime.now();
+        case 'tomorrow':
+          return DateTime.now().add(const Duration(days: 1));
+        default:
+          return _selectedDate;
+      }
+    }
+
+    String _getUserNameFromEmail(String email) {
+      // Extract name from email (before @) or return email
+      return email.split('@').first;
+    }
+
+    Color _getReasonColor(String reason) {
+      switch (reason.toLowerCase()) {
+        case 'wfh':
+          return Colors.blue[600]!;
+        case 'leave':
+          return Colors.orange[600]!;
+        default:
+          return Colors.grey[600]!;
+      }
+    }
+
+    String _getReasonDisplayText(String reason) {
+      switch (reason.toLowerCase()) {
+        case 'wfh':
+          return 'WFH';
+        case 'leave':
+          return 'Leave';
+        default:
+          return reason.toUpperCase();
+      }
+    }
+
+
+
+
     Widget _buildAvailableSlotsGrid() {
       return GridView.builder(
         shrinkWrap: true,
@@ -2013,7 +2570,7 @@ import 'analytics.dart';
         ),
       );
     }
-  
+
   // Full card for available slots (list view)
     Widget _buildAvailableSlotCard(Map<String, dynamic> slot) {
       final slotId = slot['slotId'] as String;
@@ -2024,7 +2581,7 @@ import 'analytics.dart';
       final theme = Theme.of(context);
       final colorScheme = theme.colorScheme;
       final isDark = theme.brightness == Brightness.dark;
-  
+
       return Container(
         margin: const EdgeInsets.only(bottom: 12),
         child: Card(

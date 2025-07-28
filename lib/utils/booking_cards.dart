@@ -2791,7 +2791,8 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date) {
+  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date)
+  {
 
     final slotId = slot['slotId'] as String;
     final vehicleType = slot['vehicleType'] as String;
