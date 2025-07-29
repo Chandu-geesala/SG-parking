@@ -873,39 +873,6 @@ class CombinedUploadService {
     return vehicles;
   }
 
-  // Clear slots collection with pagination
-  Future<void> _clearSlotsCollection() async {
-    final firestore = FirebaseFirestore.instance;
-    final collection = firestore.collection('Slots');
-
-    const int pageSize = 100;
-    bool hasMore = true;
-    DocumentSnapshot? lastDoc;
-
-    while (hasMore) {
-      Query query = collection.limit(pageSize);
-      if (lastDoc != null) {
-        query = query.startAfterDocument(lastDoc);
-      }
-
-      final querySnapshot = await query.get();
-
-      if (querySnapshot.docs.isEmpty) {
-        hasMore = false;
-        break;
-      }
-
-      final batch = firestore.batch();
-      for (var doc in querySnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-
-      lastDoc = querySnapshot.docs.last;
-      hasMore = querySnapshot.docs.length == pageSize;
-    }
-  }
-
   // Clear all caches
   void _clearAllCaches() {
     _processedUsers.clear();
@@ -986,6 +953,365 @@ IMPORTANT NOTES:
       }
     } catch (e) {
       return "Error uploading file: $e";
+    }
+  }
+
+
+  // Add this method to your CombinedUploadService class
+
+  Future<String> processCompleteReplace({
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
+  }) async {
+    try {
+      // Clear all caches at start
+      _clearAllCaches();
+
+      print('🚀 Starting Complete Replace Process...');
+
+      // Step 1: Process file to get rows
+      List<List<dynamic>> tableRows = await _processFileToRows(
+        filePath: filePath,
+        fileBytes: fileBytes,
+        fileName: fileName,
+      );
+
+      if (tableRows.isEmpty) return "❌ No data found in file.";
+
+      // Step 2: Parse header and create column index map
+      final header = tableRows.first
+          .map((cell) => extractCellValue(cell))
+          .toList();
+
+      final columnIndices = mapCombinedColumns(header);
+
+      // Step 3: Validate required columns
+      if (!columnIndices.containsKey('slotNo')) {
+        return "❌ Missing required column: Slot No\n"
+            "Expected columns: Slot No, Category, Buddy1, Buddy2, etc.\n"
+            "Present columns: ${header.join(', ')}";
+      }
+
+      if (!columnIndices.containsKey('buddy1')) {
+        return "❌ Missing required column: Buddy1\n"
+            "Present columns: ${header.join(', ')}";
+      }
+
+      print('✅ File validation passed. Processing ${tableRows.length - 1} rows...');
+
+      // Step 4: Extract and validate data first (before any deletion)
+      final validatedUsers = <String, Map<String, dynamic>>{};
+      final validatedSlots = <Map<String, dynamic>>[];
+      final allUserEmails = <String>{};
+      final errors = <String>[];
+      int skippedRows = 0;
+
+      for (int i = 1; i < tableRows.length; i++) {
+        final row = tableRows[i];
+
+        // Skip empty rows
+        if (row.isEmpty || row.every((cell) => extractCellValue(cell).isEmpty)) {
+          continue;
+        }
+
+        try {
+          final result = _validateAndParseCombinedRow(row, columnIndices, i);
+          if (result['success']) {
+            // Add users to collection
+            final users = result['users'] as Map<String, Map<String, dynamic>>;
+            for (var entry in users.entries) {
+              validatedUsers[entry.key] = entry.value;
+              allUserEmails.add(entry.key);
+            }
+
+            // Add slot to collection
+            validatedSlots.add(result['slot']);
+          } else {
+            errors.add(result['error']);
+            skippedRows++;
+          }
+        } catch (e) {
+          errors.add("Row ${i + 1}: Error processing data - $e");
+          skippedRows++;
+        }
+      }
+
+      if (validatedUsers.isEmpty && validatedSlots.isEmpty) {
+        return "❌ No valid data found to process.\n"
+            "Errors: ${errors.take(5).join('\n')}";
+      }
+
+      print('✅ Data validation completed:');
+      print('   - ${validatedUsers.length} unique users validated');
+      print('   - ${validatedSlots.length} slots validated');
+      print('   - $skippedRows rows skipped due to errors');
+
+      // Step 5: DELETE ALL EXISTING DATA
+      print('🗑️ CLEARING ALL EXISTING DATA...');
+
+      // Clear Users collection completely
+      await _clearUsersCollection();
+      print('✅ Users collection cleared');
+
+      // Clear Slots collection completely
+      await _clearSlotsCollection();
+      print('✅ Slots collection cleared');
+
+      // Clear Firebase Auth users (optional - be very careful with this!)
+      // await _clearFirebaseAuthUsers(); // Uncomment only if you want to delete auth accounts too
+
+      // Step 6: Upload fresh Users data
+      print('👥 UPLOADING FRESH USERS DATA...');
+      int usersUploaded = 0;
+      int emailsSent = 0;
+
+      if (allUserEmails.isNotEmpty) {
+        final firestore = FirebaseFirestore.instance;
+        WriteBatch userBatch = firestore.batch();
+        int userBatchCount = 0;
+        const int batchSize = 500;
+
+        final newUserEmails = <String>[];
+
+        for (var entry in validatedUsers.entries) {
+          final email = entry.key;
+          final userData = entry.value;
+
+          final docRef = firestore.collection('users').doc(email);
+          userBatch.set(docRef, userData);
+          usersUploaded++;
+          userBatchCount++;
+          newUserEmails.add(email);
+
+          if (userBatchCount >= batchSize) {
+            await userBatch.commit();
+            print('   Batch committed: $userBatchCount users');
+            userBatch = firestore.batch();
+            userBatchCount = 0;
+          }
+        }
+
+        if (userBatchCount > 0) {
+          await userBatch.commit();
+          print('   Final batch committed: $userBatchCount users');
+        }
+
+        // Create Firebase Auth accounts for all users
+        print('🔧 Creating Firebase Auth accounts...');
+        for (String email in newUserEmails) {
+          if (await createUserAndSendResetEmail(email)) {
+            emailsSent++;
+          }
+          // Rate limiting to avoid Firebase Auth quota issues
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Progress indicator for large datasets
+          if (emailsSent % 10 == 0) {
+            print('   Created $emailsSent/${newUserEmails.length} auth accounts...');
+          }
+        }
+
+        print('✅ Users upload completed: $usersUploaded users, $emailsSent auth accounts created');
+      }
+
+      // Step 7: Upload fresh Slots data
+      print('🅿️ UPLOADING FRESH SLOTS DATA...');
+      int slotsUploaded = 0;
+
+      if (validatedSlots.isNotEmpty) {
+        final firestore = FirebaseFirestore.instance;
+        WriteBatch slotBatch = firestore.batch();
+        int slotBatchCount = 0;
+        const int batchSize = 450;
+
+        for (var slotData in validatedSlots) {
+          try {
+            final docName = slotData['docName'];
+            final docData = slotData['docData'];
+
+            final docRef = firestore.collection('Slots').doc(docName);
+            slotBatch.set(docRef, docData);
+            slotsUploaded++;
+            slotBatchCount++;
+
+            if (slotBatchCount >= batchSize) {
+              await slotBatch.commit();
+              print('   Batch committed: $slotBatchCount slots');
+              slotBatch = firestore.batch();
+              slotBatchCount = 0;
+            }
+          } catch (e) {
+            errors.add("Failed to process slot ${slotData['docName']}: $e");
+          }
+        }
+
+        if (slotBatchCount > 0) {
+          await slotBatch.commit();
+          print('   Final batch committed: $slotBatchCount slots');
+        }
+
+        print('✅ Slots upload completed: $slotsUploaded slots');
+      }
+
+      // Clear caches
+      _clearAllCaches();
+
+      // Step 8: Generate comprehensive report
+      String errorReport = errors.isEmpty
+          ? ""
+          : "\n⚠️ Issues found (first 10):\n${errors.take(10).join('\n')}${errors.length > 10 ? '\n... and ${errors.length - 10} more issues' : ''}";
+
+      return "🚀 COMPLETE REPLACE SUCCESSFUL!\n\n"
+          "🗑️ ALL EXISTING DATA CLEARED\n"
+          "✅ FRESH DATA UPLOADED\n\n"
+          "📊 PROCESSING SUMMARY:\n"
+          "Total rows in file: ${tableRows.length - 1}\n"
+          "Rows processed successfully: ${validatedUsers.isNotEmpty || validatedSlots.isNotEmpty ? (tableRows.length - 1 - skippedRows) : 0}\n"
+          "Rows skipped due to errors: $skippedRows\n\n"
+          "👥 USERS SUMMARY:\n"
+          "Users uploaded: $usersUploaded\n"
+          "Firebase Auth accounts created: $emailsSent\n\n"
+          "🅿️ SLOTS SUMMARY:\n"
+          "Slots uploaded: $slotsUploaded\n\n"
+          "🎉 Database completely refreshed with new data!"
+          "$errorReport";
+
+    } catch (e, stackTrace) {
+      _clearAllCaches();
+      print('❌ Error during complete replace: $e');
+      print('Stack trace: $stackTrace');
+      return "❌ COMPLETE REPLACE FAILED: $e\n"
+          "The database may be in an inconsistent state.\n"
+          "Please check your file format and try again.";
+    }
+  }
+
+// Helper method to clear Users collection completely
+  Future<void> _clearUsersCollection() async {
+    final firestore = FirebaseFirestore.instance;
+    final collection = firestore.collection('users');
+
+    const int pageSize = 100;
+    bool hasMore = true;
+    DocumentSnapshot? lastDoc;
+    int deletedCount = 0;
+
+    print('   Deleting users collection...');
+
+    while (hasMore) {
+      Query query = collection.limit(pageSize);
+      if (lastDoc != null) {
+        query = query.startAfterDocument(lastDoc);
+      }
+
+      final querySnapshot = await query.get();
+
+      if (querySnapshot.docs.isEmpty) {
+        hasMore = false;
+        break;
+      }
+
+      final batch = firestore.batch();
+      for (var doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+        deletedCount++;
+      }
+      await batch.commit();
+
+      print('   Deleted $deletedCount users so far...');
+
+      lastDoc = querySnapshot.docs.last;
+      hasMore = querySnapshot.docs.length == pageSize;
+
+      // Small delay to avoid overwhelming Firestore
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    print('   ✅ Total users deleted: $deletedCount');
+  }
+
+// Enhanced slots clearing with progress tracking
+  Future<void> _clearSlotsCollection() async {
+    final firestore = FirebaseFirestore.instance;
+    final collection = firestore.collection('Slots');
+
+    const int pageSize = 100;
+    bool hasMore = true;
+    DocumentSnapshot? lastDoc;
+    int deletedCount = 0;
+
+    print('   Deleting slots collection...');
+
+    while (hasMore) {
+      Query query = collection.limit(pageSize);
+      if (lastDoc != null) {
+        query = query.startAfterDocument(lastDoc);
+      }
+
+      final querySnapshot = await query.get();
+
+      if (querySnapshot.docs.isEmpty) {
+        hasMore = false;
+        break;
+      }
+
+      final batch = firestore.batch();
+      for (var doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+        deletedCount++;
+      }
+      await batch.commit();
+
+      print('   Deleted $deletedCount slots so far...');
+
+      lastDoc = querySnapshot.docs.last;
+      hasMore = querySnapshot.docs.length == pageSize;
+
+      // Small delay to avoid overwhelming Firestore
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    print('   ✅ Total slots deleted: $deletedCount');
+  }
+
+// DANGEROUS: Only uncomment if you want to delete Firebase Auth users too
+/*
+Future<void> _clearFirebaseAuthUsers() async {
+  print('⚠️  WARNING: This will delete all Firebase Auth users!');
+  print('   This operation is irreversible and will log out all users!');
+
+  // This requires Firebase Admin SDK and should be done server-side
+  // It's not recommended to do this from client-side Flutter app
+
+  // Instead, you might want to disable users or handle this manually
+  // through Firebase Console or server-side admin functions
+}
+*/
+
+// Method for usage in UI
+  Future<String> uploadCompleteReplace() async {
+    try {
+      final result = await pickCombinedFile();
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+
+        if (kIsWeb) {
+          return await processCompleteReplace(
+            fileBytes: file.bytes,
+            fileName: file.name,
+          );
+        } else {
+          return await processCompleteReplace(
+            filePath: file.path,
+            fileName: file.name,
+          );
+        }
+      } else {
+        return "❌ No file selected";
+      }
+    } catch (e) {
+      return "❌ Error during complete replace: $e";
     }
   }
 }

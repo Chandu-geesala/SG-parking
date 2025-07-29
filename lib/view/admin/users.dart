@@ -1,9 +1,9 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:park_sg/view/admin/slots.dart';
 import 'package:park_sg/viewModel/users_backend.dart';
 
 class AllUsersPage extends StatefulWidget {
@@ -675,63 +675,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
                   fontSize: 16,
                 ),
               ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.red.withOpacity(0.3),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'User: $userName',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    Text(
-                      'Email: $userEmail',
-                      style: TextStyle(
-                        color: isDark ? Colors.white70 : Colors.black54,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      color: Colors.orange.shade700,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'This action cannot be undone. All user data and allocated slots will be removed.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white60 : Colors.black54,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+
             ],
           ),
           actions: [
@@ -852,13 +796,49 @@ class _AllUsersPageState extends State<AllUsersPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Slot Details',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
+        Row(
+          children: [
+            Text(
+              'Slot Details',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (userSlots.isNotEmpty)
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: TextButton.icon(
+                  onPressed: () => _navigateToSlotsPageWithSearch(userEmail),
+                  icon: Icon(Icons.open_in_new, size: 16, color: Theme.of(context).colorScheme.primary),
+                  label: const Text(
+                    'View More',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 16),
         Container(
@@ -1527,16 +1507,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Name Field
-        _buildFormField(
-          'Name',
-          _nameController,
-          'Enter full name',
-          Icons.person,
-          isDark,
-        ),
-        const SizedBox(height: 16),
-
         // Email Field (Required)
         _buildFormField(
           'Email *',
@@ -1554,16 +1524,6 @@ class _AllUsersPageState extends State<AllUsersPage> {
           _phoneController,
           'Enter phone number',
           Icons.phone,
-          isDark,
-        ),
-        const SizedBox(height: 16),
-
-        // Vehicle Field
-        _buildFormField(
-          'Vehicles',
-          _vehicleController,
-          'Enter vehicle numbers (comma separated)',
-          Icons.directions_car,
           isDark,
         ),
         const SizedBox(height: 16),
@@ -1746,9 +1706,7 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
       // Create user data
       final userData = {
-        'name': _nameController.text.trim().isEmpty
-            ? userService.extractNameFromEmail(email)
-            : _nameController.text.trim(),
+        'name': userService.extractNameFromEmail(email), // Always extract name from email
         'email': email,
         'userType': _selectedUserType,
         'emailVerified': true,
@@ -1761,12 +1719,13 @@ class _AllUsersPageState extends State<AllUsersPage> {
         userData['phone'] = _phoneController.text.trim();
       }
 
-      if (_vehicleController.text.trim().isNotEmpty) {
-        userData['vehicles'] = userService.parseVehicleData(_vehicleController.text.trim());
-      }
+      // Vehicles field removed
 
       // Add user to Firestore
       await _firestore.collection('users').doc(email).set(userData);
+
+      // Move closing the sheet here, right after successful add
+      Navigator.pop(context);
 
       // UPDATED: Use the new single email processing logic
       String emailMessage = '';
@@ -1789,14 +1748,11 @@ class _AllUsersPageState extends State<AllUsersPage> {
       }
 
       // Clear form
-      _nameController.clear();
       _emailController.clear();
       _phoneController.clear();
-      _vehicleController.clear();
       _selectedUserType = 'user';
       _sendResetEmail = true;
 
-      Navigator.pop(context);
       _showMessage('User added successfully!$emailMessage', isError: false);
 
       // Refresh cache
@@ -2172,5 +2128,15 @@ class _AllUsersPageState extends State<AllUsersPage> {
     }
 
     return filteredUsers;
+  }
+
+  void _navigateToSlotsPageWithSearch(String email) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ParkingSlotsPage(
+          initialSearch: email,
+        ),
+      ),
+    );
   }
 }

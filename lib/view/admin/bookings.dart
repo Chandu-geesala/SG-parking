@@ -1,4 +1,4 @@
-  import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
   import 'package:intl/intl.dart';
   import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -1189,12 +1189,8 @@ import 'analytics.dart';
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildCompactDetailItem('User', bookingData['userName'] ?? 'Unknown'),
-                  ),
-                  Expanded(
-                    child: _buildCompactDetailItem('Booked By', bookingData['bookedBy'] ?? 'Unknown'),
-                  ),
+                  Expanded(child: _buildCompactDetailItem('User', bookingData['userName'] ?? 'Unknown')),
+                  Expanded(child: _buildCompactDetailItem('Booked By', bookingData['bookedBy'] ?? 'Unknown')),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1522,7 +1518,7 @@ import 'analytics.dart';
       return Card(
         elevation: isDark ? 8 : 2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        color: isDark ? colorScheme.surface : null,
+        color: isDark ? colorScheme.surface : Colors.white,
         child: Container(
           padding: const EdgeInsets.all(24),
           width: double.infinity, // Ensure full width
@@ -1641,21 +1637,19 @@ import 'analytics.dart';
                 }
               }
             }
-          }
-        } else if (slot.containsKey('allotedUsers') && slot['allotedUsers'] is List) {
-          // Fallback: if allotedUsers is available at slot level
-          final allotedUsers = slot['allotedUsers'] as List;
-          if (allotedUsers.isNotEmpty) {
-            for (var item in allotedUsers) {
-              if (item is Map<String, dynamic> && item.containsKey('email')) {
-                emails.add(item['email'] as String);
+          } else if (slotData.containsKey('allotedUsers') && slotData['allotedUsers'] is List) {
+            // Fallback: if allotedUsers is available at slot level
+            final allotedUsers = slotData['allotedUsers'] as List;
+            if (allotedUsers.isNotEmpty) {
+              for (var item in allotedUsers) {
+                if (item is Map<String, dynamic> && item.containsKey('email')) {
+                  emails.add(item['email'] as String);
+                }
               }
             }
           }
         }
 
-        // ✅ Set primaryInfo based on emails count
-        primaryInfo = emails.isNotEmpty ? 'Alloted To ${emails.length} user(s)' : '';
 
         if (slot.containsKey('slotPriority')) {
           secondaryInfo = (slot['slotPriority'] as String? ?? '').toUpperCase();
@@ -1783,7 +1777,7 @@ import 'analytics.dart';
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'Alloted Emails:',
+                              'Alloted To:',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: colorScheme.primary,
@@ -1932,32 +1926,43 @@ import 'analytics.dart';
           bool isLargeScreen = constraints.maxWidth > 800;
 
 
-          // For available slots, always use list view to show detailed info
+          // For available slots, use grid on desktop, list on mobile
           if (_selectedSlotStatus == 'available') {
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _filteredSlots.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, index) => _buildEnhancedAvailableSlotCard(_filteredSlots[index]),
-            );
+            if (isLargeScreen) {
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: constraints.maxWidth > 900 ? 3 : 2,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.0, // <-- Changed from 1.5 to 1.0 for more height
+                ),
+                itemCount: _filteredSlots.length,
+                itemBuilder: (context, index) => _buildEnhancedAvailableSlotCard(_filteredSlots[index], isLargeScreen: true),
+              );
+            } else {
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _filteredSlots.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                itemBuilder: (context, index) => _buildEnhancedAvailableSlotCard(_filteredSlots[index], isLargeScreen: false),
+              );
+            }
           }
-
 
           if (isLargeScreen) {
             return GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                // 🎯 FORCE 3 COLUMNS FOR BETTER SPACE UTILIZATION
-                crossAxisCount: constraints.maxWidth > 900 ? 3 : 2, // Force 3 columns earlier
-                crossAxisSpacing: 4, // Minimal spacing
-                mainAxisSpacing: 4,   // Minimal spacing
+                crossAxisCount: constraints.maxWidth > 900 ? 3 : 2,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
                 childAspectRatio: _selectedSlotStatus == 'booked'
-                    ? 1.7  // Slightly taller for booked slots (has more content)
-                    : 1.6, // Slightly taller for available/unbooked // Much wider cards for available/unbooked
-
-
+                    ? 1.7
+                    : 1.6,
               ),
               itemCount: _filteredSlots.length,
               itemBuilder: (context, index) => _buildCompactSlotCard(_filteredSlots[index]),
@@ -1967,7 +1972,7 @@ import 'analytics.dart';
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredSlots.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 4), // ✅ Further reduced from 8
+              separatorBuilder: (context, index) => const SizedBox(height: 4),
               itemBuilder: (context, index) => _buildCompactSlotCard(_filteredSlots[index]),
             );
           }
@@ -2015,7 +2020,7 @@ import 'analytics.dart';
       );
     }
 
-    Widget _buildEnhancedAvailableSlotCard(Map<String, dynamic> slot) {
+    Widget _buildEnhancedAvailableSlotCard(Map<String, dynamic> slot, {bool isLargeScreen = false}) {
       final theme = Theme.of(context);
       final isDark = theme.brightness == Brightness.dark;
       final colorScheme = theme.colorScheme;
@@ -2033,12 +2038,12 @@ import 'analytics.dart';
           }
 
           final detailedSlot = snapshot.data ?? slot;
-          return _buildDetailedAvailableSlotCard(detailedSlot);
+          return _buildDetailedAvailableSlotCard(detailedSlot, isLargeScreen: isLargeScreen);
         },
       );
     }
 
-    Widget _buildDetailedAvailableSlotCard(Map<String, dynamic> slot) {
+    Widget _buildDetailedAvailableSlotCard(Map<String, dynamic> slot, {bool isLargeScreen = false}) {
       final theme = Theme.of(context);
       final isDark = theme.brightness == Brightness.dark;
       final colorScheme = theme.colorScheme;
@@ -2065,7 +2070,7 @@ import 'analytics.dart';
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         color: isDark ? colorScheme.surface : Colors.white,
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(isLargeScreen ? 32 : 16), // <-- Increased vertical padding for desktop
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
@@ -2107,7 +2112,7 @@ import 'analytics.dart';
                           ),
                         ),
                         Text(
-                          '$vehicleType • ${slotData?['slotPriority'] ?? 'permanent'}',
+                          '${slotData?['slotPriority'] ?? 'permanent'}',
                           style: TextStyle(
                             fontSize: 12,
                             color: colorScheme.onSurface.withOpacity(0.6),
@@ -2725,3 +2730,4 @@ import 'analytics.dart';
 
 
   }
+

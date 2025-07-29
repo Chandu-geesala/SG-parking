@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 
 
+
 import '../viewModel/bookingBackend.dart';
 
 
@@ -31,10 +32,20 @@ class BookingCards extends StatefulWidget {
 
 class _BookingCardsState extends State<BookingCards> {
 
+  String? _selectedVehicleFilter;
+  List<CarDimension> _carDimensions = [];
+  bool _dimensionsLoaded = false;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+
   Future<Map<String, dynamic>?> _userSlotFuture = Future.value(null);
 
   final BookingBackend _backend = BookingBackend();
   bool _isLoadingTodayBooking = false;
+
+  List<Map<String, dynamic>> _userVehicles = [];
+  bool _isLoadingVehicles = false;
+
 
 
   Map<DateTime, Map<String, dynamic>> _weeklySlotData = {};
@@ -111,6 +122,8 @@ class _BookingCardsState extends State<BookingCards> {
   void initState() {
     super.initState();
 
+    _loadUserVehicles();
+
     // Initialize with normalized today's date
     final today = DateTime.now();
     _selectedBookingDate = DateTime(today.year, today.month, today.day);
@@ -134,49 +147,12 @@ class _BookingCardsState extends State<BookingCards> {
     // Load all data in parallel
     await Future.wait([
       _loadBookings(),
-      fetchSlotRequest(),
+
       _loadPreferencesFromBackend(),
       _loadWeeklySlotData(), // ✅ NEW: Load weekly slot data
     ]);
   }
 
-
-
-  Future<Map<String, dynamic>> _fetchAllDataInBatch(String slotId, String userEmail) async {
-    try {
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final tomorrow = DateFormat('yyyy-MM-dd').format(
-          DateTime.now().add(const Duration(days: 1)));
-
-      // SINGLE BATCH OPERATION instead of multiple reads
-      final batch = FirebaseFirestore.instance.batch();
-
-      // Get all required documents in one batch
-      final List<Future<DocumentSnapshot>> futures = [
-        // Today's booking
-        FirebaseFirestore.instance
-            .collection('Bookings')
-            .doc(today)
-            .collection('BookedToday')
-            .doc(slotId)
-            .get(),
-
-
-
-      ];
-
-      // Execute all reads in parallel
-      final results = await Future.wait(futures);
-
-      return {
-        'todayBooking': _processBookingSnapshot(results[0], slotId, userEmail),
-
-        'toggleSettings': results[2].exists ? results[2].data() : {},
-      };
-    } catch (e) {
-      throw e;
-    }
-  }
 
 
 
@@ -873,7 +849,6 @@ class _BookingCardsState extends State<BookingCards> {
     });
   }
 
-
   Future<void> _removeUserDeclaration(DateTime date) async {
     setState(() {
       _isUpdatingPreferences = true;
@@ -998,8 +973,6 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 
-
-
   Future<void> _loadSingleDateSlotStatus(DateTime date) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -1027,8 +1000,6 @@ class _BookingCardsState extends State<BookingCards> {
       print('Error loading single date slot status: $e');
     }
   }
-
-
 
 
   Widget _buildUserBookedSlotCard(DateTime date) {
@@ -1126,8 +1097,6 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-
-
   Widget _buildSlotBookedByOthersCard(DateTime date) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1167,7 +1136,6 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
-
 
   Widget _buildCurrentDeclarationCard(DateTime date) {
     final preference = _datePreferences[date];
@@ -1227,7 +1195,6 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-
   Widget _buildBookSlotOption(DateTime date) {
     return InkWell(
       onTap: () async {
@@ -1282,10 +1249,6 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
-
-
-
-
 
   Widget _buildRemoveOption(DateTime date) {
     return InkWell(
@@ -1484,21 +1447,6 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-// Method to update request status in Firestore
-  Future<void> _updateRequestStatus(String requestId, String status) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('requests')
-          .doc(requestId)
-          .update({'status': status});
-    } catch (e) {
-      print('Error updating request status: $e');
-      throw e;
-    }
-  }
-
-
-
 
 // ✅ ADD this new method to load from backend
   Future<void> _loadPreferencesFromBackend() async {
@@ -1611,80 +1559,6 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
-  Widget _buildParkingUsageCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).cardTheme.shadowColor ??
-                (Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.1)),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.event_note_rounded,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Weekly Parking Preference',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ) ?? TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Mark working days when you won\'t use your slot',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Info and Action Buttons
-          _buildParkingPreferenceActions(),
-        ],
-      ),
-    );
-  }
-
 
   Widget _getPreferenceIcon(DateTime date) {
     final preference = _datePreferences[date];
@@ -1763,34 +1637,6 @@ class _BookingCardsState extends State<BookingCards> {
     return Icon(Icons.add_circle_outline, size: 14, color: Colors.blue[600]);
   }
 
-  Widget _buildParkingPreferenceActions() {
-    return Column(
-      children: [
-        // Legend
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey[800]!.withOpacity(0.5)
-                : Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildLegendItem(Icons.touch_app_rounded, 'Tap to Set', Colors.grey[500]!),
-              _buildLegendItem(Icons.beach_access, 'Leave', Colors.orange[600]!),
-              _buildLegendItem(Icons.home_work, 'WFH', Colors.blue[600]!),
-            ],
-          ),
-        ),
-
-
-        // Action Buttons
-
-      ],
-    );
-  }
 
 
 
@@ -1812,176 +1658,16 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// Add these methods to your _BookingCardsState class:
-
-
-// ✅ REPLACE this method
-  void _clearAllUnavailableDates() async {
-    setState(() {
-      _isUpdatingPreferences = true;
-    });
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final result = await _backend.clearAllUserAvailabilityDeclarationsOptimized(user.email!);
-
-        if (result['success']) {
-          setState(() {
-            _datePreferences.clear();
-            _unavailableDates.clear();
-          });
-
-          _backend.showSnackBar(context, result['message']);
-        } else {
-          _backend.showSnackBar(context, result['message'], isError: true);
-        }
-      }
-    } catch (e) {
-      _backend.showSnackBar(context, 'Error clearing preferences: $e', isError: true);
-    } finally {
-      setState(() {
-        _isUpdatingPreferences = false;
-      });
-    }
-  }
-
-
-
 
 
 // Add these state variables to your _BookingCardsState class
   DateTime _selectedBookingDate = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
   bool _isLoadingBookingStatus = false;
 
-  Widget _buildWeeklyBookingCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).cardTheme.shadowColor ??
-                (Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.1)),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.calendar_month_rounded,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Weekly Slot Booking',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ) ?? TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Select a date to check booking status',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
 
 
-          const SizedBox(height: 20),
 
-          // Booking Status Card
-          _buildBookingStatusCard(),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildBookingStatusCard() {
-    final today = DateTime.now();
-    final normalizedToday = DateTime(today.year, today.month, today.day);
-    final normalizedSelectedDate = DateTime(_selectedBookingDate.year, _selectedBookingDate.month, _selectedBookingDate.day);
-    final isSelectedDateToday = DateUtils.isSameDay(_selectedBookingDate, normalizedToday);
-
-    // ✅ Check if user declared unavailability for this date FIRST
-    if (_datePreferences.containsKey(normalizedSelectedDate)) {
-      return _buildUserDeclarationCard(normalizedSelectedDate);
-    }
-
-    // ✅ NEW: Check if user has booked ANY slot (not just their assigned slot)
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: _backend.getUserBookedSlotForDate(
-        userEmail: FirebaseAuth.instance.currentUser?.email ?? '',
-        date: _selectedBookingDate,
-      ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildLoadingBookingStatusCard();
-        }
-
-        if (snapshot.hasError) {
-          return _buildErrorBookingStatusCard();
-        }
-
-        final userBookedSlot = snapshot.data;
-
-        if (userBookedSlot != null) {
-          // User has booked some slot (either their own or alternative)
-          return _buildUserHasBookingCard(userBookedSlot, _selectedBookingDate);
-        } else {
-          // User hasn't booked any slot, check if their assigned slot is available
-          return FutureBuilder<BookingStatus>(
-            future: _getBookingStatusForDate(_selectedBookingDate),
-            builder: (context, statusSnapshot) {
-              BookingStatus bookingStatus = BookingStatus.available;
-
-              if (statusSnapshot.hasData) {
-                bookingStatus = statusSnapshot.data!;
-              } else if (statusSnapshot.hasError) {
-                return _buildErrorBookingStatusCard();
-              }
-
-              return _buildBookingStatusCardContent(bookingStatus);
-            },
-          );
-        }
-      },
-    );
-  }
-
-  // ✅ NEW METHOD: Show when user has booked any slot (own or alternative)
   Widget _buildUserHasBookingCard(Map<String, dynamic> bookedSlot, DateTime date) {
     final slotId = bookedSlot['slotId'] as String;
     final bookingData = bookedSlot['bookingData'] as Map<String, dynamic>;
@@ -2344,7 +2030,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// Add this helper method for error state:
+
   Widget _buildErrorBookingStatusCard() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -2378,7 +2064,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// Add this helper method for the actual content:
+
   Widget _buildBookingStatusCardContent(BookingStatus bookingStatus) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -2452,7 +2138,6 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
-
 
   Widget _buildStatusActionButton(BookingStatus status) {
     switch (status) {
@@ -2632,28 +2317,117 @@ class _BookingCardsState extends State<BookingCards> {
                     final userSlotData = userSlotSnapshot.data!['slotData'] as Map<String, dynamic>;
                     final userVehicleType = userSlotData['vehicleType'] as String? ?? 'BIKE';
 
-                    return FutureBuilder<List<Map<String, dynamic>>>(
-                      future: _backend.getAvailableSlotsWithUserDetails(
-                        date: date,
-                        vehicleTypeFilter: userVehicleType,
-                      ),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return _buildLoadingState();
-                        }
+                    return Column(
+                      children: [
+                        // Car filter chips (only show for cars)
+                        if (userVehicleType.toUpperCase() == 'CAR')
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.directions_car_rounded,
+                                      size: 16,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Your Car Sizes:',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(context).colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: _getUserCarVehicles().map((vehicle) {
+                                      final dimensions = vehicle['dimensions']?.toString() ?? 'Unknown';
+                                      final vehicleNumber = vehicle['number']?.toString() ?? '';
+                                      final isSelected = _selectedVehicleFilter == vehicleNumber;
 
-                        if (snapshot.hasError) {
-                          return _buildErrorState(snapshot.error.toString());
-                        }
+                                      return Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: FilterChip(
+                                          label: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                vehicleNumber.toUpperCase(),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isSelected ? Colors.white : Colors.grey[700],
+                                                ),
+                                              ),
+                                              Text(
+                                                dimensions,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: isSelected ? Colors.white70 : Colors.grey[600],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          selected: isSelected,
+                                          onSelected: (selected) {
+                                            // setState(() {
+                                            //   _selectedVehicleFilter = selected ? vehicleNumber : null;
+                                            // });
+                                          },
+                                          backgroundColor: Colors.blue[50],
+                                          selectedColor: Colors.blue[600],
+                                          checkmarkColor: Colors.white,
+                                          side: BorderSide(
+                                            color: isSelected ? Colors.blue[600]! : Colors.blue[300]!,
+                                            width: 1.5,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Divider(color: Colors.grey[300], height: 1),
+                              ],
+                            ),
+                          ),
 
-                        final availableSlots = snapshot.data ?? [];
+                        // Original FutureBuilder for slots
+                        Expanded(
+                          child: FutureBuilder<List<Map<String, dynamic>>>(
+                            future: _backend.getAvailableSlotsWithUserDetails(
+                              date: date,
+                              vehicleTypeFilter: userVehicleType,
+                            ),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return _buildLoadingState();
+                              }
 
-                        if (availableSlots.isEmpty) {
-                          return _buildEmptyState(date);
-                        }
+                              if (snapshot.hasError) {
+                                return _buildErrorState(snapshot.error.toString());
+                              }
 
-                        return _buildAvailableSlotsList(availableSlots, scrollController, date); // ✅ Pass date
-                      },
+                              final availableSlots = snapshot.data ?? [];
+
+                              if (availableSlots.isEmpty) {
+                                return _buildEmptyState(date);
+                              }
+
+                              return _buildAvailableSlotsList(availableSlots, scrollController, date);
+                            },
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -2665,7 +2439,11 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-
+  List<Map<String, dynamic>> _getUserCarVehicles() {
+    return _userVehicles.where((vehicle) =>
+    vehicle['type']?.toString().toUpperCase() == 'CAR'
+    ).toList();
+  }
 
   Widget _buildLoadingState() {
     return Center(
@@ -2691,7 +2469,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// ✅ NEW: Error state widget
+
   Widget _buildErrorState(String error) {
     return Center(
       child: Padding(
@@ -2727,7 +2505,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// ✅ NEW: Empty state widget
+
   Widget _buildEmptyState(DateTime date) {
     return Center(
       child: Padding(
@@ -2791,8 +2569,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date)
-  {
+  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date){
 
     final slotId = slot['slotId'] as String;
     final vehicleType = slot['vehicleType'] as String;
@@ -3124,8 +2901,6 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 
-
-
  Future<void> _showAlreadyBookedDialog(String message, DateTime date) async {
     // Parse the message: "already_booked_other:slotId:userName"
     final parts = message.split(':');
@@ -3242,7 +3017,6 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// ✅ NEW METHOD: Show current user's booked slot details
   Future<void> _showMyBookedSlotDetails(DateTime date) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -3284,7 +3058,7 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 
-// ✅ NEW METHOD: Show detailed dialog of booked slot
+
   void _showBookedSlotDetailsDialog(Map<String, dynamic> slotDetails, DateTime date) {
     final slotId = slotDetails['slotId'] as String;
     final bookingData = slotDetails['bookingData'] as Map<String, dynamic>;
@@ -3417,7 +3191,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// ✅ HELPER METHOD: Build detail row
+
   Widget _buildDetailRow(String label, String value, IconData icon) {
     return Row(
       children: [
@@ -3454,7 +3228,6 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-// ✅ NEW: Helper methods
   String _getUserNameFromEmail(String email, List<Map<String, dynamic>> allotedUsers) {
     try {
       final user = allotedUsers.firstWhere((user) => user['email'] == email);
@@ -3531,11 +3304,6 @@ class _BookingCardsState extends State<BookingCards> {
 
     return BookingStatus.available;
   }
-
-
-
-
-// Replace these two methods in your _BookingCardsState class:
 
   Color _getStatusBackgroundColor(BookingStatus status) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -3864,9 +3632,6 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-
-
-
   Widget _buildSlotDashboard(Map<String, dynamic> slotData) {
     final slotId = slotData['slotId'] as String;
     final data = slotData['slotData'] as Map<String, dynamic>;
@@ -3886,11 +3651,15 @@ class _BookingCardsState extends State<BookingCards> {
           const SizedBox(height: 16),
           _buildCombinedWeeklyParkingCard(),
 
-          const SizedBox(height: 16),
-          _buildrulesCard(),
+          // const SizedBox(height: 16),
+          // _buildrulesCard(),
 
           const SizedBox(height: 16),
           _buildSlotUsersCard(allotedTo),
+          const SizedBox(height: 16),
+          _buildVehicleInfoCard(vehicleType),
+          const SizedBox(height: 16),
+
           const SizedBox(height: 20),
         ],
       ),
@@ -3965,89 +3734,89 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-  Widget _buildrulesCard() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: isDark
-              ? [
-            Theme.of(context).colorScheme.primary.withOpacity(0.2),
-            Theme.of(context).colorScheme.primary.withOpacity(0.1),
-          ]
-              : [
-            Colors.indigo.withOpacity(0.1),
-            Colors.indigo.withOpacity(0.05),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isDark
-                ? Colors.black.withOpacity(0.3)
-                : Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
-                  : Colors.indigo.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-                Icons.info_outline_rounded,
-                color: isDark
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.indigo,
-                size: 24
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Booking Guidelines",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: isDark
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.indigo[800],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "• Eat 5 star Do Nothing 😎 \n",
-
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.5,
-                    color: isDark
-                        ? Theme.of(context).colorScheme.primary.withOpacity(0.8)
-                        : Colors.indigo[600]!.withOpacity(0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildrulesCard() {
+  //   final isDark = Theme.of(context).brightness == Brightness.dark;
+  //
+  //   return Container(
+  //     decoration: BoxDecoration(
+  //       borderRadius: BorderRadius.circular(16),
+  //       gradient: LinearGradient(
+  //         colors: isDark
+  //             ? [
+  //           Theme.of(context).colorScheme.primary.withOpacity(0.2),
+  //           Theme.of(context).colorScheme.primary.withOpacity(0.1),
+  //         ]
+  //             : [
+  //           Colors.indigo.withOpacity(0.1),
+  //           Colors.indigo.withOpacity(0.05),
+  //         ],
+  //         begin: Alignment.topLeft,
+  //         end: Alignment.bottomRight,
+  //       ),
+  //       boxShadow: [
+  //         BoxShadow(
+  //           color: isDark
+  //               ? Colors.black.withOpacity(0.3)
+  //               : Colors.black.withOpacity(0.04),
+  //           blurRadius: 8,
+  //           offset: const Offset(0, 2),
+  //         ),
+  //       ],
+  //     ),
+  //     padding: const EdgeInsets.all(16),
+  //     child: Row(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         Container(
+  //           padding: const EdgeInsets.all(10),
+  //           decoration: BoxDecoration(
+  //             color: isDark
+  //                 ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
+  //                 : Colors.indigo.withOpacity(0.15),
+  //             shape: BoxShape.circle,
+  //           ),
+  //           child: Icon(
+  //               Icons.info_outline_rounded,
+  //               color: isDark
+  //                   ? Theme.of(context).colorScheme.primary
+  //                   : Colors.indigo,
+  //               size: 24
+  //           ),
+  //         ),
+  //         const SizedBox(width: 16),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 "Booking Guidelines",
+  //                 style: TextStyle(
+  //                   fontSize: 16,
+  //                   fontWeight: FontWeight.bold,
+  //                   color: isDark
+  //                       ? Theme.of(context).colorScheme.primary
+  //                       : Colors.indigo[800],
+  //                 ),
+  //               ),
+  //               const SizedBox(height: 8),
+  //               Text(
+  //                 "• Eat 5 star Do Nothing 😎 \n",
+  //
+  //                 style: TextStyle(
+  //                   fontSize: 13,
+  //                   height: 1.5,
+  //                   color: isDark
+  //                       ? Theme.of(context).colorScheme.primary.withOpacity(0.8)
+  //                       : Colors.indigo[600]!.withOpacity(0.85),
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
 
 
@@ -4146,196 +3915,6 @@ class _BookingCardsState extends State<BookingCards> {
         }
       });
     }
-  }
-
-
-
-
-  Widget _buildRequestStatusWidget(String? status) {
-    // Check if status starts with "allotted-"
-    if (status != null && status.startsWith('allotted-')) {
-      // Extract the slot info after "allotted-"
-      String allottedSlot = status.substring(9); // Remove "allotted-"
-
-      // Format the slot (e.g., "b3--377" becomes "B3 - 377")
-      String formattedSlot = allottedSlot
-          .replaceAll('--', ' - ')
-          .toUpperCase();
-
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.green[100],
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green[300]!),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.check_circle_rounded,
-              color: Colors.green[700],
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                'Admin allotted $formattedSlot for today',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.green[700],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-
-
-
-
-
-    // Default pending state for other statuses
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.orange[100],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange[300]!),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.hourglass_top_rounded,
-            color: Colors.orange[700],
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'Request Pending',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.orange[700],
-            ),
-          ),
-        ],
-      ),
-    );
-
-
-
-
-
-  }
-
-
-  Map<String, dynamic>? _getRequestByType(Map<String, dynamic> summary, String requestType) {
-    final allRequests = summary['allRequests'] as List<Map<String, dynamic>>? ?? [];
-    try {
-      return allRequests.firstWhere(
-            (request) => request['type'] == requestType,
-      );
-    } catch (e) {
-      return null; // Not found
-    }
-  }
-
-
-
-  Widget _buildLoadingBookingInfo(bool isToday) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue[200]!),
-      ),
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(
-                Icons.schedule_rounded,
-                color: Colors.blue[300],
-                size: 32,
-              ),
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Loading Your Slot Information...',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.blue[700],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isToday
-                ? 'Checking your slot details for today'
-                : 'Checking your slot details for tomorrow',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Animated dots for extra visual appeal
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildAnimatedDot(0),
-              const SizedBox(width: 4),
-              _buildAnimatedDot(1),
-              const SizedBox(width: 4),
-              _buildAnimatedDot(2),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedDot(int index) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: Duration(milliseconds: 600 + (index * 200)),
-      builder: (context, value, child) {
-        return AnimatedBuilder(
-          animation: AlwaysStoppedAnimation(value),
-          builder: (context, child) {
-            return Transform.scale(
-              scale: 0.5 + (0.5 * ((sin(value * 2 * pi * 2) + 1) / 2)),
-              child: Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: Colors.blue[400],
-                  shape: BoxShape.circle,
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
 
@@ -4446,9 +4025,6 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
-
-
-
   Future<Map<String, dynamic>?> fetchUserSlotPrev() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('No user logged in');
@@ -4479,48 +4055,6 @@ class _BookingCardsState extends State<BookingCards> {
     return null; // User not found in any slot
   }
 
-  Future<void> fetchSlotRequest() async {
-    setState(() {
-      _isLoadingRequest = true;
-    });
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        setState(() {
-          _slotRequest = null;
-          _isLoadingRequest = false;
-        });
-        return;
-      }
-
-      final query = await FirebaseFirestore.instance
-          .collection('requests')
-          .where('email', isEqualTo: user.email)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        var docs = query.docs;
-        docs.sort((a, b) {
-          final aTime = a.data()['timestamp'];
-          final bTime = b.data()['timestamp'];
-          if (aTime != null && bTime != null) {
-            return bTime.compareTo(aTime);
-          }
-          if (aTime != null) return -1;
-          if (bTime != null) return 1;
-          return 0;
-        });
-        _slotRequest = docs.first.data();
-      } else {
-        _slotRequest = null;
-      }
-    } catch (e) {
-      _slotRequest = null;
-    }
-    setState(() {
-      _isLoadingRequest = false;
-    });
-  }
 
   Future<void> _loadBookings() async {
     if (!mounted) return;
@@ -4611,28 +4145,6 @@ class _BookingCardsState extends State<BookingCards> {
       'exists': false,
       'isBookedByCurrentUser': false,
     };
-  }
-
-  Future<void> refreshData() async {
-    // Clear cache to force fresh data
-    _cachedUserSlot = null;
-    _bookingStatuses.clear();
-    _weeklySlotData.clear(); // ✅ Clear weekly data cache
-
-    // Reinitialize _userSlotFuture
-    setState(() {
-      _userSlotFuture = fetchUserSlot();
-    });
-
-    await _userSlotFuture;
-
-    // Refresh all data
-    await Future.wait([
-      _loadBookings(),
-      fetchSlotRequest(),
-      _loadPreferencesFromBackend(),
-      _loadWeeklySlotData(), // ✅ Refresh weekly slot data
-    ]);
   }
 
   Future<void> _loadWeeklySlotData() async {
@@ -4806,7 +4318,7 @@ class _BookingCardsState extends State<BookingCards> {
       );
 
       await Future.delayed(const Duration(milliseconds: 500));
-      await fetchSlotRequest();
+
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -4925,13 +4437,691 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
+
+
+  Future<void> refreshData() async {
+    // Clear cache to force fresh data
+    _cachedUserSlot = null;
+    _bookingStatuses.clear();
+    _weeklySlotData.clear();
+
+    // Reset dimensions cache
+    _dimensionsLoaded = false;
+    _carDimensions.clear();
+
+    // Reinitialize _userSlotFuture
+    setState(() {
+      _userSlotFuture = fetchUserSlot();
+    });
+
+    await _userSlotFuture;
+
+    // Refresh all data
+    await Future.wait([
+      _loadBookings(),
+      _loadPreferencesFromBackend(),
+      _loadWeeklySlotData(),
+      _loadUserVehicles(),
+      _fetchCarDimensions(), // Add this line
+    ]);
+  }
+
+  Future<void> _fetchCarDimensions() async {
+    if (_dimensionsLoaded) return; // Use cached data
+
+    try {
+      final QuerySnapshot snapshot = await _firestore
+          .collection('dimensions')
+          .orderBy(FieldPath.documentId)
+          .get();
+
+      final List<CarDimension> dimensions = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return CarDimension.fromFirestore(doc.id, data);
+      }).toList();
+
+      setState(() {
+        _carDimensions = dimensions;
+        _dimensionsLoaded = true;
+      });
+    } catch (e) {
+      print('Error fetching car dimensions: $e');
+    }
+  }
+
+
+
+
+// Method to load user vehicles from Firestore
+  Future<void> _loadUserVehicles() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingVehicles = true;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // Note: Your backend uses 'users' collection (lowercase)
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users') // Using lowercase as per your backend
+            .doc(user.email) // Your backend uses email as document ID
+            .get();
+
+        if (userDoc.exists) {
+          final userData = userDoc.data()!;
+          final vehicles = userData['vehicles'] as List<dynamic>? ?? [];
+
+          if (mounted) {
+            setState(() {
+              _userVehicles = vehicles.cast<Map<String, dynamic>>();
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading user vehicles: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading vehicles: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingVehicles = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _saveVehicle(Map<String, dynamic> vehicleData) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('No user logged in');
+      }
+
+      // Create vehicle data with timestamp as DateTime instead of serverTimestamp()
+      final vehicleWithTimestamp = {
+        ...vehicleData,
+        'createdAt': DateTime.now().toIso8601String(),
+      };
+
+      // Your backend uses email as document ID in 'users' collection
+      final userDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.email);
+
+      // Check if document exists first
+      final docSnapshot = await userDocRef.get();
+
+      if (docSnapshot.exists) {
+        // Document exists, update vehicles array
+        await userDocRef.update({
+          'vehicles': FieldValue.arrayUnion([vehicleWithTimestamp])
+        });
+      } else {
+        // Document doesn't exist, create it with vehicle data
+        final userData = {
+          'name': user.displayName ?? _extractNameFromEmail(user.email!),
+          'email': user.email!,
+          'userType': 'user',
+          'createdAt': FieldValue.serverTimestamp(),
+          'platform': 'mobile_app',
+          'vehicles': [vehicleWithTimestamp],
+        };
+
+        await userDocRef.set(userData);
+      }
+
+      // Reload vehicles to show updated list
+      await _loadUserVehicles();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Vehicle added successfully!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving vehicle: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error adding vehicle: ${e.toString()}"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+
+// Method to remove vehicle from Firestore
+  Future<void> _removeVehicle(Map<String, dynamic> vehicleData) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('No user logged in');
+      }
+
+      final userDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.email);
+
+      await userDocRef.update({
+        'vehicles': FieldValue.arrayRemove([vehicleData])
+      });
+
+      // Reload vehicles to show updated list
+      await _loadUserVehicles();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Vehicle removed successfully!"),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error removing vehicle: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error removing vehicle: ${e.toString()}"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+// Helper method to extract name from email (matching your backend logic)
+  String _extractNameFromEmail(String email) {
+    if (email.isEmpty) return 'Unknown User';
+
+    try {
+      String username = email.split('@')[0];
+      List<String> parts = username.split(RegExp(r'[._]'));
+
+      List<String> capitalizedParts = parts.map((part) {
+        if (part.isEmpty) return '';
+        return part[0].toUpperCase() + part.substring(1).toLowerCase();
+      }).where((part) => part.isNotEmpty).toList();
+
+      return capitalizedParts.join(' ');
+    } catch (e) {
+      return 'Unknown User';
+    }
+  }
+
+// Updated Vehicle Info Widget with real data
+  Widget _buildVehicleInfoCard(String userVehicleType) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).cardTheme.shadowColor ??
+                (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.1)),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _getVehicleColor(userVehicleType).withOpacity(
+                          Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.1
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      _getVehicleIcon(userVehicleType),
+                      color: _getVehicleColor(userVehicleType),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Text(
+                    'Your Vehicles',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                onPressed: () => _showAddVehicleDialog(userVehicleType),
+                icon: Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 28,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          if (_isLoadingVehicles)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_userVehicles.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.grey[800]
+                    : Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.grey[600]!
+                      : Colors.grey[200]!,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: Colors.grey[600],
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'No vehicles added yet. Add your ${userVehicleType.toLowerCase()} details to get started.',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._userVehicles.map((vehicle) => _buildVehicleTile(vehicle)).toList(),
+        ],
+      ),
+    );
+  }
+
+// Updated Vehicle Tile Widget
+  Widget _buildVehicleTile(Map<String, dynamic> vehicle) {
+    final vehicleType = vehicle['type'] as String;
+    final vehicleNumber = vehicle['number'] as String;
+    final dimensions = vehicle['dimensions'] as String?;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _getVehicleColor(vehicleType).withOpacity(
+            Theme.of(context).brightness == Brightness.dark ? 0.15 : 0.05
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _getVehicleColor(vehicleType).withOpacity(0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _getVehicleColor(vehicleType).withOpacity(
+                  Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.1
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              _getVehicleIcon(vehicleType),
+              color: _getVehicleColor(vehicleType),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vehicleNumber.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _getVehicleColor(vehicleType),
+                  ),
+                ),
+                if (dimensions != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Size: $dimensions',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => _showRemoveVehicleDialog(vehicle),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.red[400],
+              size: 20,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddVehicleDialog(String userVehicleType) {
+    final TextEditingController numberController = TextEditingController();
+    CarDimension? selectedDimension;
+    bool isLoading = false;
+    bool isDimensionsLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          // Fetch dimensions when dialog opens for cars
+          if (userVehicleType.toUpperCase() == 'CAR' && !_dimensionsLoaded) {
+            if (!isDimensionsLoading) {
+              isDimensionsLoading = true;
+              _fetchCarDimensions().then((_) {
+                if (mounted) {
+                  setDialogState(() {
+                    isDimensionsLoading = false;
+                  });
+                }
+              });
+            }
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _getVehicleColor(userVehicleType).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _getVehicleIcon(userVehicleType),
+                    color: _getVehicleColor(userVehicleType),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text('Add ${userVehicleType.toLowerCase()}'),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: numberController,
+                    decoration: InputDecoration(
+                      labelText: 'Vehicle Number',
+                      hintText: 'e.g., TS 09 EA 1234',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.confirmation_number_outlined,
+                        color: _getVehicleColor(userVehicleType),
+                      ),
+                    ),
+                    textCapitalization: TextCapitalization.characters,
+                  ),
+
+                  if (userVehicleType.toUpperCase() == 'CAR') ...[
+                    const SizedBox(height: 16),
+                    isDimensionsLoading
+                        ? Container(
+                      padding: const EdgeInsets.all(16),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 12),
+                          Text('Loading car sizes...'),
+                        ],
+                      ),
+                    )
+                        : DropdownButtonFormField<CarDimension>(
+                      value: selectedDimension,
+                      decoration: InputDecoration(
+                        labelText: 'Car Size',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        prefixIcon: Icon(
+                          Icons.straighten_rounded,
+                          color: _getVehicleColor(userVehicleType),
+                        ),
+                      ),
+                      items: _carDimensions.map((dimension) => DropdownMenuItem(
+                        value: dimension,
+                        child: Text(dimension.name),
+                      )).toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedDimension = value;
+                        });
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isLoading ? null : () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+
+              ElevatedButton(
+                onPressed: isLoading || isDimensionsLoading ? null : () async {
+                  if (numberController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter vehicle number'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (userVehicleType.toUpperCase() == 'CAR' && selectedDimension == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please select car size'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  setDialogState(() {
+                    isLoading = true;
+                  });
+
+                  final vehicleData = {
+                    'type': userVehicleType.toUpperCase(),
+                    'number': numberController.text.trim(),
+                    if (selectedDimension != null) ...{
+                      'dimensions': selectedDimension!.name,
+                      'dimensionId': selectedDimension!.id,
+                      'dimensionData': selectedDimension!.data,
+                    },
+                  };
+
+                  Navigator.pop(context);
+                  await _saveVehicle(vehicleData);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _getVehicleColor(userVehicleType),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+                    : const Text('Add Vehicle'),
+              ),
+
+
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+
+// Updated Remove Vehicle Dialog with backend integration
+  void _showRemoveVehicleDialog(Map<String, dynamic> vehicle) {
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Remove Vehicle'),
+            ],
+          ),
+          content: Text('Are you sure you want to remove ${vehicle['number']}?'),
+          actions: [
+            TextButton(
+              onPressed: isLoading ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading ? null : () async {
+                setDialogState(() {
+                  isLoading = true;
+                });
+
+                Navigator.pop(context);
+                await _removeVehicle(vehicle);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: isLoading
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+                  : const Text('Remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     super.dispose();
   }
 
-
-
 }
 
 
+
+class CarDimension {
+  final String id;
+  final String name;
+  final Map<String, dynamic> data;
+
+  CarDimension({
+    required this.id,
+    required this.name,
+    required this.data,
+  });
+
+  // Replace this factory method in CarDimension class:
+  factory CarDimension.fromFirestore(String id, Map<String, dynamic> data) {
+    // Create display name from width x height
+    String displayName = id; // fallback
+
+    if (data.containsKey('width') && data.containsKey('height')) {
+      final width = data['width']?.toString() ?? '';
+      final height = data['height']?.toString() ?? '';
+      displayName = '${width}m × ${height}m';
+    }
+
+    return CarDimension(
+      id: id,
+      name: displayName,
+      data: data,
+    );
+  }
+}

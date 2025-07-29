@@ -28,7 +28,7 @@ class _AllocationUIState extends State<AllocationUI> {
 
   final CombinedUploadService _uploadService = CombinedUploadService();
 
-  void _pickAndProcessFile({bool clearExisting = false}) async {
+  void _pickAndProcessCompleteReplace() async {
     setState(() {
       isProcessing = true;
     });
@@ -50,9 +50,11 @@ class _AllocationUIState extends State<AllocationUI> {
       final file = result.files.single;
       String log;
 
-      // FIXED: Platform-specific file handling
+      // Show progress indicator for long operation
+      _showSnackBar("Processing file... This may take a while", Colors.blue);
+
+      // Use the new complete replace method
       if (kIsWeb) {
-        // WEB: Use bytes only
         if (file.bytes == null) {
           _showSnackBar("File bytes not available on web", Colors.red);
           setState(() {
@@ -61,13 +63,11 @@ class _AllocationUIState extends State<AllocationUI> {
           return;
         }
 
-        log = await _uploadService.processCombinedFile(
+        log = await _uploadService.processCompleteReplace(
           fileBytes: file.bytes,
           fileName: file.name,
-
         );
       } else {
-        // MOBILE/DESKTOP: Use path
         if (file.path == null) {
           _showSnackBar("File path not available", Colors.red);
           setState(() {
@@ -76,82 +76,75 @@ class _AllocationUIState extends State<AllocationUI> {
           return;
         }
 
-        log = await _uploadService.processCombinedFile(
+        log = await _uploadService.processCompleteReplace(
           filePath: file.path,
           fileName: file.name,
         );
       }
 
-      // Parse the log to show appropriate message
-      if (log.contains("Combined Upload Complete")) {
-        try {
-          final lines = log.split('\n');
-
-          // Extract slots count
-          String? slotsLine = lines.firstWhere(
-                (line) => line.contains('Successfully uploaded:') && !line.contains('users'),
-            orElse: () => '',
-          );
-
-          // Extract users count
-          String? usersLine = lines.firstWhere(
-                (line) => line.contains('Successfully uploaded:') && line.contains('users'),
-            orElse: () => '',
-          );
-
-          // Extract numbers using regex
-          final slotsMatch = RegExp(r'Successfully uploaded:\s*(\d+)').firstMatch(slotsLine);
-          final usersMatch = RegExp(r'Successfully uploaded:\s*(\d+)').firstMatch(usersLine);
-
-          final slotsCount = slotsMatch?.group(1) ?? '0';
-          final usersCount = usersMatch?.group(1) ?? '0';
-
-          String action = clearExisting ? "replaced" : "uploaded";
-          _showSnackBar(
-              "Successfully $action $slotsCount slots and $usersCount users",
-              Colors.green
-          );
-
-          // Show additional info about emails if present
-          if (log.contains('Password reset emails sent')) {
-            Future.delayed(Duration(seconds: 2), () {
-              _showSnackBar("Password reset emails sent to new users", Colors.blue);
-            });
-          }
-
-          // Show skipped info if present
-          if (log.contains('Skipped due to errors:')) {
-            final skippedLine = lines.firstWhere(
-                  (line) => line.contains('Skipped due to errors:'),
-              orElse: () => '',
-            );
-            if (skippedLine.isNotEmpty) {
-              final skippedMatch = RegExp(r'(\d+)').firstMatch(skippedLine);
-              final skippedCount = skippedMatch?.group(0) ?? '0';
-              if (int.tryParse(skippedCount) != null && int.parse(skippedCount) > 0) {
-                Future.delayed(Duration(seconds: 3), () {
-                  _showSnackBar("Note: $skippedCount rows had errors", Colors.orange);
-                });
-              }
-            }
-          }
-
-        } catch (e) {
-          _showSnackBar("Upload completed successfully!", Colors.green);
-        }
-      } else if (log.contains("Error during combined import")) {
+      // Parse the result and show appropriate messages
+      if (log.contains("COMPLETE REPLACE SUCCESSFUL")) {
+        _showSuccessMessages(log);
+      } else if (log.contains("COMPLETE REPLACE FAILED")) {
         final lines = log.split('\n');
-        final errorLine = lines.isNotEmpty ? lines.first : "Unknown error occurred";
-        _showSnackBar("Upload failed: $errorLine", Colors.red);
+        final errorLine = lines.length > 1 ? lines[1] : "Unknown error occurred";
+        _showSnackBar("Complete replace failed: $errorLine", Colors.red);
       } else {
         final firstLine = log.split('\n').first;
-        _showSnackBar("Upload issue: $firstLine", Colors.orange);
+        _showSnackBar("Replace issue: $firstLine", Colors.orange);
       }
+
     } catch (e) {
-      _showSnackBar("Error: ${e.toString()}", Colors.red);
+      _showSnackBar("Error during complete replace: ${e.toString()}", Colors.red);
     } finally {
       setState(() {
         isProcessing = false;
+      });
+    }
+  }
+
+
+
+  void _showSuccessMessages(String log) {
+    final lines = log.split('\n');
+
+    // Extract key numbers from the log
+    String? usersCount;
+    String? slotsCount;
+    String? authCount;
+
+    for (String line in lines) {
+      if (line.contains('Users uploaded:')) {
+        usersCount = RegExp(r'Users uploaded:\s*(\d+)').firstMatch(line)?.group(1);
+      } else if (line.contains('Slots uploaded:')) {
+        slotsCount = RegExp(r'Slots uploaded:\s*(\d+)').firstMatch(line)?.group(1);
+      } else if (line.contains('Firebase Auth accounts created:')) {
+        authCount = RegExp(r'Firebase Auth accounts created:\s*(\d+)').firstMatch(line)?.group(1);
+      }
+    }
+    _showSnackBar(
+      "🚀 Complete Replace Successful! Database completely refreshed.",
+      Colors.green,
+    );
+
+    // Show detailed stats after delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        String details = "📊 ";
+        if (usersCount != null) details += "$usersCount users, ";
+        if (slotsCount != null) details += "$slotsCount slots";
+        if (authCount != null) details += ", $authCount auth accounts created";
+
+        _showSnackBar(details, Colors.blue);
+      }
+    });
+
+    // Show auth info after another delay
+    if (authCount != null && int.tryParse(authCount) != null && int.parse(authCount) > 0) {
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted) {
+          _showSnackBar("📧 Password reset emails sent to all new users", Colors.purple);
+        }
       });
     }
   }
@@ -193,7 +186,7 @@ class _AllocationUIState extends State<AllocationUI> {
                 ),
                 SizedBox(height: isWide ? 20 : 16),
                 Text(
-                  'Upload Slots Data',
+                  'Complete Database Replace',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: isDarkMode
@@ -205,7 +198,7 @@ class _AllocationUIState extends State<AllocationUI> {
                 SizedBox(height: isWide ? 12 : 8),
 
                 Text(
-                  'Select an Excel (.xlsx) or CSV file to upload both parking slots and users data',
+                  'Upload Excel (.xlsx) or CSV file to completely replace all users and slots data',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: isDarkMode
                         ? Theme.of(context).colorScheme.onSurfaceVariant
@@ -214,71 +207,57 @@ class _AllocationUIState extends State<AllocationUI> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                SizedBox(height: isWide ? 32 : 24),
 
-                // Responsive button layout
-                isWide
-                    ? Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
+                SizedBox(height: isWide ? 20 : 16),
 
-                    SizedBox(
-                      width: 180,
-                      height: 52,
-                      child: ElevatedButton.icon(
-                        onPressed: isProcessing ? null : () => _showReplaceConfirmation(),
-                        icon: const Icon(Icons.refresh, size: 20),
-                        label: const Text(
-                          'Replace All',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isDarkMode
-                              ? const Color(0xFFFF8C00) // Bright orange for dark mode
-                              : Colors.orange[600],
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
+                // Warning box
+
+
+                // Replace button
+                SizedBox(
+                  width: isWide ? 220 : double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: isProcessing ? null : () => _showCompleteReplaceConfirmation(),
+                    icon: isProcessing
+                        ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
+                    )
+                        : const Icon(Icons.refresh, size: 20),
+                    label: Text(
+                      isProcessing ? 'Processing...' : 'Complete Replace',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                     ),
-                  ],
-                )
-                    : Row(
-                  children: [
-                    // Upload Button (Merge with existing)
-
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: isProcessing ? null : () => _showReplaceConfirmation(),
-                          icon: const Icon(Icons.refresh, size: 20),
-                          label: const Text(
-                            'Replace All',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isDarkMode
-                                ? const Color(0xFFFF8C00) // Bright orange for dark mode
-                                : Colors.orange[600],
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 2,
-                          ),
-                        ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDarkMode
+                          ? const Color(0xFFFF6B35) // Bright red-orange for dark mode
+                          : Colors.orangeAccent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      elevation: 2,
                     ),
-                  ],
+                  ),
                 ),
 
-                SizedBox(height: isWide ? 16 : 12),
-
-
+                if (isProcessing) ...[
+                  SizedBox(height: isWide ? 16 : 12),
+                  Text(
+                    'This may take several minutes for large datasets...',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
             ),
           ),
@@ -287,6 +266,101 @@ class _AllocationUIState extends State<AllocationUI> {
     );
   }
 
+
+  void _showCompleteReplaceConfirmation() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Make it modal
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.red[600], size: 28),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Complete Database Replace')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This action will:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              _buildConfirmationItem('🗑️', 'Delete ALL existing users'),
+              _buildConfirmationItem('🗑️', 'Delete ALL existing parking slots'),
+              _buildConfirmationItem('📁', 'Upload fresh data from your file'),
+              _buildConfirmationItem('🔧', 'Create new Firebase Auth accounts'),
+              _buildConfirmationItem('📧', 'Send password reset emails'),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error, color: Colors.red[700], size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'This action cannot be undone!',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Are you absolutely sure you want to continue?',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _pickAndProcessCompleteReplace();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[600],
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Yes, Replace All'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+  Widget _buildConfirmationItem(String emoji, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+        ],
+      ),
+    );
+  }
 
 
   void _showReplaceConfirmation() {
@@ -313,7 +387,7 @@ class _AllocationUIState extends State<AllocationUI> {
             ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _pickAndProcessFile(clearExisting: true);
+                _pickAndProcessCompleteReplace();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orange[600],
@@ -960,6 +1034,9 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   List<Map<String, dynamic>> _availableUsers = [];
   bool _isLoading = false;
 
+  // Add: period units
+  static const List<String> _periodUnits = ['Day', 'Month'];
+
   @override
   void initState() {
     super.initState();
@@ -970,6 +1047,16 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
     // Convert existing allotedTo to mutable list
     _allocatedPersons = widget.allotedTo.map((person) {
       final personMap = person as Map<String, dynamic>;
+      // Migrate old period_months to new fields if needed
+      if (!personMap.containsKey('period_unit')) {
+        if (personMap.containsKey('period_months')) {
+          personMap['period_value'] = personMap['period_months'];
+          personMap['period_unit'] = 'Month';
+        } else {
+          personMap['period_value'] = 1;
+          personMap['period_unit'] = 'Day';
+        }
+      }
       return Map<String, dynamic>.from(personMap);
     }).toList();
 
@@ -1026,60 +1113,15 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? colorScheme.surfaceVariant.withOpacity(0.8)
-                      : Colors.red[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: colorScheme.error.withOpacity(0.24), // semi-transparent red
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Slot ID: ${widget.slotId}',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Vehicle Type: ${widget.data['vehicleType'] ?? 'Unknown'}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    if (_allocatedPersons.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Allocated to: ${_allocatedPersons.length} person(s)',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.error,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'This action cannot be undone.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.error,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+
+
+
+
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(context).pop(),
               child: Text(
                 'Cancel',
                 style: TextStyle(
@@ -1152,26 +1194,29 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
       _allocatedPersons.add({
         'name': '',
         'email': '',
-        'period_months': 6, // Default to 6 months instead of 1
+        'period_value': 1,
+        'period_unit': 'Day',
         'alloted_date': DateTime.now().toIso8601String(),
-        'expiry_date': _calculateExpiryDate(DateTime.now(), 6), // Calculate expiry for 6 months
+        'expiry_date': _calculateExpiryDateFlexible(DateTime.now(), 1, 'Day'),
       });
     });
     await _loadAvailableUsers();
   }
 
-
-
-// 2. Add helper method to calculate expiry date
-  String _calculateExpiryDate(DateTime allotedDate, int periodMonths) {
-    final expiryDate = DateTime(
-      allotedDate.year,
-      allotedDate.month + periodMonths,
-      allotedDate.day,
-    );
+  // Flexible expiry calculation
+  String _calculateExpiryDateFlexible(DateTime allotedDate, int periodValue, String periodUnit) {
+    DateTime expiryDate;
+    if (periodUnit == 'Month') {
+      expiryDate = DateTime(
+        allotedDate.year,
+        allotedDate.month + periodValue,
+        allotedDate.day,
+      );
+    } else {
+      expiryDate = allotedDate.add(Duration(days: periodValue));
+    }
     return expiryDate.toIso8601String();
   }
-
 
   void _removePerson(int index) {
     setState(() {
@@ -1185,11 +1230,14 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
       _allocatedPersons[index][field] = value;
 
       // Recalculate expiry date when period changes
-      if (field == 'period_months') {
+      if (field == 'period_value' || field == 'period_unit') {
         final allotedDateStr = _allocatedPersons[index]['alloted_date'];
+        final periodValue = _allocatedPersons[index]['period_value'] ?? 1;
+        final periodUnit = _allocatedPersons[index]['period_unit'] ?? 'Day';
         if (allotedDateStr != null) {
           final allotedDate = DateTime.parse(allotedDateStr);
-          _allocatedPersons[index]['expiry_date'] = _calculateExpiryDate(allotedDate, value as int);
+          _allocatedPersons[index]['expiry_date'] =
+              _calculateExpiryDateFlexible(allotedDate, periodValue, periodUnit);
         }
       }
     });
@@ -1236,15 +1284,12 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
       if (_allocatedPersons.isNotEmpty) {
         for (int i = 0; i < _allocatedPersons.length; i++) {
           final person = _allocatedPersons[i];
-          print('Validating person $i: ${person.toString()}'); // Debug print
-
           final name = person['name']?.toString().trim() ?? '';
           final email = person['email']?.toString().trim() ?? '';
-          final period = person['period_months'];
-
-          if (name.isEmpty || email.isEmpty || period == null || period <= 0) {
+          final periodValue = person['period_value'];
+          final periodUnit = person['period_unit'];
+          if (name.isEmpty || email.isEmpty || periodValue == null || periodValue <= 0 || periodUnit == null) {
             hasValidPersons = false;
-            print('Validation failed for person $i: name=$name, email=$email, period=$period');
             break;
           }
         }
@@ -1565,16 +1610,15 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              // Period input for existing users
+                              // Flexible period input
                               Row(
                                 children: [
                                   Expanded(
-                                    child: // In the TextFormField for period input, add validation
-                                    TextFormField(
-                                      initialValue: person['period_months']?.toString() ?? '6',
+                                    child: TextFormField(
+                                      initialValue: person['period_value']?.toString() ?? '1',
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
-                                        labelText: 'Period (Months)',
+                                        labelText: 'Period',
                                         labelStyle: TextStyle(
                                           color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                                         ),
@@ -1590,16 +1634,30 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                           size: 20,
                                           color: Theme.of(context).colorScheme.primary,
                                         ),
-                                        helperText: 'Minimum 1 month, Maximum 36 months',
                                       ),
                                       onChanged: (value) {
-                                        int period = int.tryParse(value) ?? 6;
-                                        // Add validation
+                                        int period = int.tryParse(value) ?? 1;
                                         if (period < 1) period = 1;
-                                        if (period > 36) period = 36;
-                                        _updatePersonData(index, 'period_months', period);
+                                        if (person['period_unit'] == 'Month' && period > 36) period = 36;
+                                        if (person['period_unit'] == 'Day' && period > 365) period = 365;
+                                        _updatePersonData(index, 'period_value', period);
                                       },
                                     ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  DropdownButton<String>(
+                                    value: person['period_unit'] ?? 'Day',
+                                    items: _periodUnits.map((unit) {
+                                      return DropdownMenuItem<String>(
+                                        value: unit,
+                                        child: Text(unit),
+                                      );
+                                    }).toList(),
+                                    onChanged: (selected) {
+                                      if (selected != null) {
+                                        _updatePersonData(index, 'period_unit', selected);
+                                      }
+                                    },
                                   ),
                                 ],
                               ),
@@ -1669,40 +1727,58 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                 },
                               ),
                               const SizedBox(height: 12),
-                              // Period input for new users
-// In the TextFormField for period input, add validation
-                              TextFormField(
-                                initialValue: person['period_months']?.toString() ?? '6',
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'Period (Months)',
-                                  labelStyle: TextStyle(
-                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                              // Flexible period input for new users
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue: person['period_value']?.toString() ?? '1',
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        labelText: 'Period',
+                                        labelStyle: TextStyle(
+                                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                        prefixIcon: Icon(
+                                          Icons.access_time,
+                                          size: 20,
+                                          color: Theme.of(context).colorScheme.primary,
+                                        ),
+                                      ),
+                                      onChanged: (value) {
+                                        int period = int.tryParse(value) ?? 1;
+                                        if (period < 1) period = 1;
+                                        if (person['period_unit'] == 'Month' && period > 36) period = 36;
+                                        if (person['period_unit'] == 'Day' && period > 365) period = 365;
+                                        _updatePersonData(index, 'period_value', period);
+                                      },
+                                    ),
                                   ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                                  const SizedBox(width: 8),
+                                  DropdownButton<String>(
+                                    value: person['period_unit'] ?? 'Day',
+                                    items: _periodUnits.map((unit) {
+                                      return DropdownMenuItem<String>(
+                                        value: unit,
+                                        child: Text(unit),
+                                      );
+                                    }).toList(),
+                                    onChanged: (selected) {
+                                      if (selected != null) {
+                                        _updatePersonData(index, 'period_unit', selected);
+                                      }
+                                    },
                                   ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.access_time,
-                                    size: 20,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                  helperText: 'Minimum 1 month, Maximum 36 months',
-                                ),
-                                onChanged: (value) {
-                                  int period = int.tryParse(value) ?? 6;
-                                  // Add validation
-                                  if (period < 1) period = 1;
-                                  if (period > 36) period = 36;
-                                  _updatePersonData(index, 'period_months', period);
-                                },
+                                ],
                               ),
                             ],
-
                             // Always show allocation date and expiry date if available
                             const SizedBox(height: 12),
                             Row(
@@ -1802,36 +1878,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                             ),
 
                             // Period display
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.blue.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.schedule,
-                                    size: 14,
-                                    color: Colors.blue.shade700,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Period: ${person['period_months'] ?? 1} month(s)',
-                                    style: TextStyle(
-                                      color: Colors.blue.shade700,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+
                           ],
                         ),
                       );
@@ -1867,6 +1914,9 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                 ),
                 const SizedBox(width: 16),
                 // Modern Update Button (full width)
+
+
+
                 Expanded(
                   child: SizedBox(
                     height: 52,
@@ -2047,21 +2097,17 @@ class SlotPeriodManager {
       statusColor = Colors.red;
       statusIcon = Icons.error;
       statusText = 'Expired ${-daysUntilExpiry} days ago';
-    } else if (daysUntilExpiry <= 7) {
-      // Expiring soon
-      statusColor = Colors.orange;
-      statusIcon = Icons.warning;
-      statusText = 'Expires in $daysUntilExpiry days';
-    } else if (daysUntilExpiry <= 30) {
-      // Expiring this month
-      statusColor = Colors.amber;
-      statusIcon = Icons.schedule;
+    } else if (daysUntilExpiry < 30) {
+      // Expiring soon or within a month, show days
+      statusColor = daysUntilExpiry <= 7 ? Colors.orange : Colors.amber;
+      statusIcon = daysUntilExpiry <= 7 ? Icons.warning : Icons.schedule;
       statusText = 'Expires in $daysUntilExpiry days';
     } else {
-      // Active
+      // More than a month, show months (rounded up)
+      int monthsLeft = (daysUntilExpiry / 30).ceil();
       statusColor = Colors.green;
       statusIcon = Icons.check_circle;
-      statusText = 'Active ($daysUntilExpiry days left)';
+      statusText = 'Active ($monthsLeft month${monthsLeft > 1 ? 's' : ''} left)';
     }
 
     return Container(
@@ -2171,4 +2217,5 @@ class SlotPeriodManager {
 
     return expiringSoon;
   }
+
 }

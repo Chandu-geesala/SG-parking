@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 import '../../utils/dimensions_card.dart';
 
 class ParkingSlotsPage extends StatefulWidget {
-  const ParkingSlotsPage({Key? key}) : super(key: key);
+  final String? initialSearch;
+  const ParkingSlotsPage({Key? key, this.initialSearch}) : super(key: key);
 
   @override
   State<ParkingSlotsPage> createState() => _ParkingSlotsPageState();
@@ -17,14 +18,17 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
   bool _dimensionsLoaded = false;
 
 
-  final TextEditingController _searchController = TextEditingController();
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+
+  final TextEditingController _searchController = TextEditingController();
 
   List<ParkingSlot> _allSlots = [];
   List<ParkingSlot> _filteredSlots = [];
   bool _isLoading = true;
   bool _isDarkMode = false;
-  String _selectedFilter = 'all';
+  String _selectedVehicleTypeChip = 'all'; // 'all', 'CAR', 'BIKE'
   String _sortBy = 'slotNo';
   bool _showFilters = false;
 
@@ -44,6 +48,25 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
     _fetchParkingSlots();
     _fetchCarDimensions(); // Add this line
     _searchController.addListener(_filterSlots);
+
+    if (widget.initialSearch != null && widget.initialSearch!.isNotEmpty) {
+      _searchController.text = widget.initialSearch!;
+      // Ensure slots are fetched before filtering
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // If slots are already loaded, filter immediately
+        if (!_isLoading) {
+          _filterSlots();
+        } else {
+          // Otherwise, filter after slots are loaded
+          Future.microtask(() async {
+            while (_isLoading) {
+              await Future.delayed(const Duration(milliseconds: 50));
+            }
+            _filterSlots();
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -113,34 +136,15 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
             user.name.toLowerCase().contains(query) ||
                 user.email.toLowerCase().contains(query));
 
-        final matchesFilter = _selectedFilter == 'all' ||
-            _selectedFilter == slot.vehicleType.toLowerCase() ||
-            _selectedFilter == slot.slotPriority;
+        // Only filter by vehicle type chip
+        final matchesVehicleType = _selectedVehicleTypeChip == 'all'
+            || slot.vehicleType == _selectedVehicleTypeChip;
 
-        return matchesSearch && matchesFilter;
+        return matchesSearch && matchesVehicleType;
       }).toList();
 
-      // Sort slots
-      _filteredSlots.sort((a, b) {
-        switch (_sortBy) {
-          case 'slotNo':
-            return a.slotNo.compareTo(b.slotNo);
-          case 'vehicleType':
-            return a.vehicleType.compareTo(b.vehicleType);
-          case 'expiry':
-            if (a.allottedTo.isEmpty && b.allottedTo.isEmpty) return 0;
-            if (a.allottedTo.isEmpty) return 1;
-            if (b.allottedTo.isEmpty) return -1;
-
-            final aExpiry = a.allottedTo.map((u) => u.expiryDate).reduce(
-                    (a, b) => a.isBefore(b) ? a : b);
-            final bExpiry = b.allottedTo.map((u) => u.expiryDate).reduce(
-                    (a, b) => a.isBefore(b) ? a : b);
-            return aExpiry.compareTo(bExpiry);
-          default:
-            return 0;
-        }
-      });
+      // Sort by slot number by default
+      _filteredSlots.sort((a, b) => a.slotNo.compareTo(b.slotNo));
     });
   }
 
@@ -168,12 +172,13 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
     final GlobalKey<FormState> formKey = GlobalKey<FormState>();
     final TextEditingController slotNoController = TextEditingController();
     final TextEditingController remarksController = TextEditingController();
-    final TextEditingController vehicleCompatibilityController = TextEditingController();
+    // Remove vehicleCompatibilityController, use dropdown instead
 
     String selectedVehicleType = 'CAR';
     String selectedSlotPriority = 'permanent';
     String selectedStatus = 'AVAILABLE';
     String? selectedDimension;
+    String? selectedVehicleCompatibility; // New for dropdown
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -237,17 +242,14 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                         TextFormField(
                           controller: slotNoController,
                           decoration: InputDecoration(
-                            hintText: 'Enter slot number (e.g., A001, B123)',
+                            hintText: 'Enter slot number (e.g., B2-001, B1-203)',
                             hintStyle: TextStyle(
                               color: isDark ? Colors.grey[400] : Colors.grey[500],
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            prefixIcon: Icon(
-                              Icons.local_parking,
-                              color: isDark ? Colors.grey[400] : Colors.grey[500],
-                            ),
+
                           ),
                           style: TextStyle(
                             color: isDark ? Colors.white : Colors.black,
@@ -296,55 +298,13 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                             setDialogState(() {
                               selectedVehicleType = value!;
                               // Reset car-specific fields when switching to bike
-                              if (value == 'BIKE') {
-                                selectedDimension = null;
-                                vehicleCompatibilityController.clear();
-                              }
                             });
                           },
                         ),
                         const SizedBox(height: 16),
 
-                        // Slot Priority (Required)
-                        Text(
-                          'Slot Priority *',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          value: selectedSlotPriority,
-                          decoration: InputDecoration(
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            prefixIcon: Icon(
-                              Icons.priority_high,
-                              color: isDark ? Colors.grey[400] : Colors.grey[500],
-                            ),
-                          ),
-                          dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'permanent', child: Text('Permanent')),
-                            DropdownMenuItem(value: 'hybrid', child: Text('Hybrid')),
-                          ],
-                          onChanged: (value) {
-                            setDialogState(() {
-                              selectedSlotPriority = value!;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Car-specific fields
+                        // Dimension (Only for CAR)
                         if (selectedVehicleType == 'CAR') ...[
-                          // Dimension dropdown for cars
                           Text(
                             'Dimension *',
                             style: TextStyle(
@@ -361,10 +321,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              prefixIcon: Icon(
-                                Icons.straighten,
-                                color: isDark ? Colors.grey[400] : Colors.grey[500],
-                              ),
+
                             ),
                             dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
                             style: TextStyle(
@@ -385,18 +342,18 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                                 selectedDimension = value;
                               });
                             },
-                            validator: selectedVehicleType == 'CAR' ? (value) {
+                            validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please select a dimension for car slots';
                               }
                               return null;
-                            } : null,
+                            },
                           ),
                           const SizedBox(height: 16),
 
-                          // Vehicle Compatibility (Car only)
+                          // Vehicle Compatibility (Car only, now dropdown and mandatory)
                           Text(
-                            'Vehicle Compatibility Level',
+                            'Vehicle Compatibility Level *',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               color: isDark ? Colors.white : Colors.black,
@@ -404,28 +361,38 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                             ),
                           ),
                           const SizedBox(height: 8),
-                          TextFormField(
-                            controller: vehicleCompatibilityController,
+                          DropdownButtonFormField<String>(
+                            value: selectedVehicleCompatibility,
                             decoration: InputDecoration(
-                              hintText: 'Enter compatibility level (optional)',
-                              hintStyle: TextStyle(
-                                color: isDark ? Colors.grey[400] : Colors.grey[500],
-                              ),
+                              hintText: 'Select compatibility level',
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              prefixIcon: Icon(
-                                Icons.settings,
-                                color: isDark ? Colors.grey[400] : Colors.grey[500],
-                              ),
+
                             ),
+                            dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                             ),
+                            items: const [
+                              DropdownMenuItem(value: 'lower', child: Text('Lower')),
+                              DropdownMenuItem(value: 'upper', child: Text('Upper')),
+                              DropdownMenuItem(value: 'surface', child: Text('Surface')),
+                            ],
+                            onChanged: (value) {
+                              setDialogState(() {
+                                selectedVehicleCompatibility = value;
+                              });
+                            },
+                            validator: (value) {
+                              if (selectedVehicleType == 'CAR' && (value == null || value.isEmpty)) {
+                                return 'Please select a compatibility level';
+                              }
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 16),
                         ],
-
 
                         // Remarks (Always visible)
                         Text(
@@ -448,10 +415,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            prefixIcon: Icon(
-                              Icons.comment,
-                              color: isDark ? Colors.grey[400] : Colors.grey[500],
-                            ),
+
                           ),
                           style: TextStyle(
                             color: isDark ? Colors.white : Colors.black,
@@ -479,7 +443,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                     if (formKey.currentState!.validate()) {
                       // Check if slot number already exists
                       final existingSlot = _allSlots.any(
-                            (slot) => slot.slotNo.toLowerCase() == slotNoController.text.trim().toLowerCase(),
+                        (slot) => slot.slotNo.toLowerCase() == slotNoController.text.trim().toLowerCase(),
                       );
 
                       if (existingSlot) {
@@ -494,27 +458,22 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                           'vehicleType': selectedVehicleType,
                           'slotPriority': selectedSlotPriority,
                           'status': selectedStatus,
-                          'vehicleCompatibility': selectedVehicleType == 'CAR' && vehicleCompatibilityController.text.trim().isNotEmpty
-                              ? vehicleCompatibilityController.text.trim()
+                          'vehicleCompatibility': selectedVehicleType == 'CAR'
+                              ? selectedVehicleCompatibility
                               : null,
                           'dimension': selectedVehicleType == 'CAR' ? selectedDimension : null,
                           'remarks': remarksController.text.trim().isEmpty
                               ? null
                               : remarksController.text.trim(),
-                          'alloted_to': [], // Empty array for new slot
+                          'alloted_to': [],
                           'created_at': FieldValue.serverTimestamp(),
                         };
 
-                        // Add to Firestore
-                        // Add to Firestore with slot number as document ID
                         await _firestore.collection('Slots').doc(slotNoController.text.trim()).set(slotData);
 
                         Navigator.of(context).pop();
                         _showSuccessSnackBar('Parking slot added successfully!');
-
-                        // Refresh the slots list
                         _fetchParkingSlots();
-
                       } catch (e) {
                         _showErrorSnackBar('Error adding slot: $e');
                       }
@@ -569,7 +528,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
             ],
           ),
           content: Text(
-            'Are you sure you want to delete slot "${slot.slotNo}"? This action cannot be undone.',
+            'Are you sure you want to delete slot ?',
             style: TextStyle(
               color: isDark ? Colors.grey[300] : Colors.grey[700],
             ),
@@ -616,35 +575,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
 
 
 
-  Color _getStatusColor(ParkingSlot slot) {
-    if (slot.allottedTo.isEmpty) return Colors.grey;
 
-    final nearestExpiry = slot.allottedTo
-        .map((u) => u.expiryDate)
-        .reduce((a, b) => a.isBefore(b) ? a : b);
-
-    if (nearestExpiry.isBefore(DateTime.now())) {
-      return Colors.red;
-    } else if (nearestExpiry.isBefore(DateTime.now().add(const Duration(days: 30)))) {
-      return Colors.orange;
-    }
-    return Colors.green;
-  }
-
-  String _getStatusText(ParkingSlot slot) {
-    if (slot.allottedTo.isEmpty) return 'Available';
-
-    final nearestExpiry = slot.allottedTo
-        .map((u) => u.expiryDate)
-        .reduce((a, b) => a.isBefore(b) ? a : b);
-
-    if (nearestExpiry.isBefore(DateTime.now())) {
-      return 'Expired';
-    } else if (nearestExpiry.isBefore(DateTime.now().add(const Duration(days: 30)))) {
-      return 'Expiring Soon';
-    }
-    return 'Active';
-  }
 
   // Helper method to get responsive column count
   int _getColumnCount(double screenWidth) {
@@ -662,6 +593,10 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
     return 1.1; // Taller cards for mobile
   }
 
+
+
+  // Replace the existing Scaffold body section with this:
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -669,319 +604,277 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
     final screenWidth = MediaQuery.of(context).size.width;
     final isWeb = screenWidth > 600;
 
+    final carCount = _allSlots.where((s) => s.vehicleType == 'CAR').length;
+    final bikeCount = _allSlots.where((s) => s.vehicleType == 'BIKE').length;
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF111827) : const Color(0xFFF9FAFB),
-      body: CustomScrollView(
-        slivers: [
-          // App Bar
-          SliverAppBar(
-            floating: true,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: isDark ? const Color(0xFF1F2937) : Colors.white,
-            surfaceTintColor: Colors.transparent,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Parking Slots',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: isWeb ? 24 : 20,
-                  ),
-                ),
-
-              ],
+      appBar: AppBar(
+        title: const Text(
+          'Parking Slots',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        backgroundColor: const Color(0xFF6C5CE7),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.3),
+                width: 1,
+              ),
             ),
-            actions: [
-              IconButton(
-                onPressed: _fetchParkingSlots,
-                icon: Icon(
-                  Icons.refresh,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-                tooltip: 'Refresh',
-              ),
-              IconButton(
-                onPressed: _showDimensionsBottomSheet,
-                icon: Icon(
-                  Icons.calculate,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-                tooltip: 'Manage Dimensions',
-              ),
-              IconButton(
-                onPressed: () {
-                  setState(() {
-                    _showFilters = !_showFilters;
-                  });
-                },
-                icon: Icon(
-                  Icons.filter_list,
-                  color: isDark ? Colors.white : Colors.black,
+            child: TextButton.icon(
+              onPressed: _showDimensionsBottomSheet,
+              label: const Text(
+                'Car Dimensions',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
                 ),
               ),
-            ],
-            bottom: PreferredSize(
-              preferredSize: Size.fromHeight(_showFilters ? (isWeb ? 260 : 320) : 100), // Increased heights
-              child: Container(
-                width: double.infinity,
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: EdgeInsets.all(isWeb ? 16 : 12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Search Bar
-                        Container(
-                          constraints: BoxConstraints(maxWidth: isWeb ? 800 : double.infinity),
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF374151) : Colors.grey[100],
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isDark ? Colors.grey[700]! : Colors.grey[300]!,
-                            ),
-                          ),
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: 'Search by slot, name, or email...',
-                              hintStyle: TextStyle(
-                                color: isDark ? Colors.grey[400] : Colors.grey[500],
-                                fontSize: isWeb ? 14 : 12,
-                              ),
-                              prefixIcon: Icon(
-                                Icons.search,
-                                color: isDark ? Colors.grey[400] : Colors.grey[500],
-                              ),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: isWeb ? 14 : 12,
-                              ),
-                            ),
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontSize: isWeb ? 14 : 12,
-                            ),
-                          ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Search and Filter Section
+            Container(
+              color: isDark ? const Color(0xFF111827) : Colors.white,
+              padding: EdgeInsets.fromLTRB(
+                isWeb ? 24 : 16,
+                isWeb ? 20 : 16,
+                isWeb ? 24 : 16,
+                isWeb ? 24 : 20,
+              ),
+              child: Column(
+                children: [
+                  // Search Bar
+                  Container(
+                    constraints: BoxConstraints(maxWidth: isWeb ? 600 : double.infinity),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF374151) : Colors.grey[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark ? Colors.grey[600]! : Colors.grey[200]!,
+                      ),
+                    ),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search by slot, name, or email...',
+                        hintStyle: TextStyle(
+                          color: isDark ? Colors.grey[400] : Colors.grey[500],
+                          fontSize: 14,
                         ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: isDark ? Colors.grey[400] : Colors.grey[500],
+                          size: 20,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Filter Chips - Centered
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
 
-                        // Filter Panel
-                        if (_showFilters) ...[
-                          SizedBox(height: isWeb ? 16 : 12),
-                          Container(
-                            constraints: BoxConstraints(maxWidth: isWeb ? 800 : double.infinity),
-                            padding: EdgeInsets.all(isWeb ? 16 : 12),
-                            decoration: BoxDecoration(
-                              color: isDark ? const Color(0xFF1F2937) : Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isWeb)
-                                  Row(
-                                    children: [
-                                      Expanded(child: _buildFilterDropdown('Filter by Type', _selectedFilter, [
-                                        {'value': 'all', 'text': 'All Types'},
-                                        {'value': 'bike', 'text': 'Bike'},
-                                        {'value': 'car', 'text': 'Car'},
-                                        {'value': 'permanent', 'text': 'Permanent'},
-                                        {'value': 'hybrid', 'text': 'Hybrid'},
-                                      ], (value) {
-                                        setState(() => _selectedFilter = value!);
-                                        _filterSlots();
-                                      }, isDark)),
-                                      const SizedBox(width: 16),
-                                      Expanded(child: _buildFilterDropdown('Sort by', _sortBy, [
-                                        {'value': 'slotNo', 'text': 'Slot Number'},
-                                        {'value': 'vehicleType', 'text': 'Vehicle Type'},
-                                        {'value': 'expiry', 'text': 'Expiry Date'},
-                                      ], (value) {
-                                        setState(() => _sortBy = value!);
-                                        _filterSlots();
-                                      }, isDark)),
-                                    ],
-                                  )
-                                else
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _buildFilterDropdown('Filter by Type', _selectedFilter, [
-                                        {'value': 'all', 'text': 'All Types'},
-                                        {'value': 'bike', 'text': 'Bike'},
-                                        {'value': 'car', 'text': 'Car'},
-                                        {'value': 'permanent', 'text': 'Permanent'},
-                                        {'value': 'hybrid', 'text': 'Hybrid'},
-                                      ], (value) {
-                                        setState(() => _selectedFilter = value!);
-                                        _filterSlots();
-                                      }, isDark),
-                                      const SizedBox(height: 12),
-                                      _buildFilterDropdown('Sort by', _sortBy, [
-                                        {'value': 'slotNo', 'text': 'Slot Number'},
-                                        {'value': 'vehicleType', 'text': 'Vehicle Type'},
-                                        {'value': 'expiry', 'text': 'Expiry Date'},
-                                      ], (value) {
-                                        setState(() => _sortBy = value!);
-                                        _filterSlots();
-                                      }, isDark),
-                                    ],
-                                  ),
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      setState(() {
-                                        _searchController.clear();
-                                        _selectedFilter = 'all';
-                                        _sortBy = 'slotNo';
-                                      });
-                                      _filterSlots();
-                                    },
-                                    icon: const Icon(Icons.clear, size: 18),
-                                    label: const Text('Clear Filters'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: isDark ? Colors.grey[700] : Colors.grey[200],
-                                      foregroundColor: isDark ? Colors.white : Colors.black,
-                                      padding: EdgeInsets.symmetric(
-                                        vertical: isWeb ? 12 : 10,
-                                        horizontal: 16,
-                                      ),
-                                    ),
+                      Center(
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            // Car Filter Chip
+                            InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _selectedVehicleTypeChip = _selectedVehicleTypeChip == 'CAR' ? 'all' : 'CAR';
+                                  _filterSlots();
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _selectedVehicleTypeChip == 'CAR'
+                                      ? Colors.green
+                                      : (isDark ? Colors.grey[800] : Colors.grey[100]),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _selectedVehicleTypeChip == 'CAR'
+                                        ? Colors.green
+                                        : (isDark ? Colors.grey[600]! : Colors.grey[300]!),
+                                    width: 1,
                                   ),
                                 ),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+
+                                    Text(
+                                      'Car ($carCount)',
+                                      style: TextStyle(
+                                        color: _selectedVehicleTypeChip == 'CAR'
+                                            ? Colors.white
+                                            : Colors.green,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ],
-                    ),
+                            // Bike Filter Chip
+                            InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _selectedVehicleTypeChip = _selectedVehicleTypeChip == 'BIKE' ? 'all' : 'BIKE';
+                                  _filterSlots();
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _selectedVehicleTypeChip == 'BIKE'
+                                      ? Colors.purple
+                                      : (isDark ? Colors.grey[800] : Colors.grey[100]),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _selectedVehicleTypeChip == 'BIKE'
+                                        ? Colors.purple
+                                        : (isDark ? Colors.grey[600]! : Colors.grey[300]!),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+
+                                    Text(
+                                      'Bike ($bikeCount)',
+                                      style: TextStyle(
+                                        color: _selectedVehicleTypeChip == 'BIKE'
+                                            ? Colors.white
+                                            : Colors.purple,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                ],
               ),
             ),
-          ),
-
-          // Stats Cards
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(isWeb ? 16 : 12),
-              child: Center(
-                child: Container(
-                  constraints: BoxConstraints(maxWidth: isWeb ? 1200 : double.infinity),
-                  child: isWeb
-                      ? Row(
+            // Divider
+            Container(
+              height: 1,
+              color: isDark ? Colors.grey[700] : Colors.grey[200],
+            ),
+            // Main Content (keep existing Expanded widget with grid)
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _fetchParkingSlots,
+                color: Theme.of(context).colorScheme.primary,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _filteredSlots.isEmpty
+                    ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(child: _buildStatCard('Total Slots', '${_allSlots.length}', Icons.local_parking, Colors.blue, isDark, isWeb)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildStatCard('Car Slots', '${_allSlots.where((s) => s.vehicleType == 'CAR').length}', Icons.directions_car, Colors.green, isDark, isWeb)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildStatCard('Bike Slots', '${_allSlots.where((s) => s.vehicleType == 'BIKE').length}', Icons.two_wheeler, Colors.purple, isDark, isWeb)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildStatCard('Hybrid', '${_allSlots.where((s) => s.slotPriority == 'hybrid').length}', Icons.people, Colors.orange, isDark, isWeb)),
-                    ],
-                  )
-                      : GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.5,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                    children: [
-                      _buildStatCard('Total Slots', '${_allSlots.length}', Icons.local_parking, Colors.blue, isDark, isWeb),
-                      _buildStatCard('Car Slots', '${_allSlots.where((s) => s.vehicleType == 'CAR').length}', Icons.directions_car, Colors.green, isDark, isWeb),
-                      _buildStatCard('Bike Slots', '${_allSlots.where((s) => s.vehicleType == 'BIKE').length}', Icons.two_wheeler, Colors.purple, isDark, isWeb),
-                      _buildStatCard('Hybrid', '${_allSlots.where((s) => s.slotPriority == 'hybrid').length}', Icons.people, Colors.orange, isDark, isWeb),
+                      Icon(
+                        Icons.search_off,
+                        size: isWeb ? 64 : 48,
+                        color: isDark ? Colors.grey[600] : Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No slots found',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          fontSize: isWeb ? 20 : 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Try adjusting your search or filter criteria',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: isDark ? Colors.grey[500] : Colors.grey[500],
+                          fontSize: isWeb ? 14 : 12,
+                        ),
+                      ),
                     ],
                   ),
-                ),
-              ),
-            ),
-          ),
+                )
+                    : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columnCount = _getColumnCount(constraints.maxWidth);
+                    final aspectRatio = _getAspectRatio(constraints.maxWidth);
 
-          // Slots List
-          if (_isLoading)
-            const SliverFillRemaining(
-              child: Center(
-                child: CircularProgressIndicator(),
-              ),
-            )
-          else if (_filteredSlots.isEmpty)
-            SliverFillRemaining(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.search_off,
-                      size: isWeb ? 64 : 48,
-                      color: isDark ? Colors.grey[600] : Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No slots found',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: isDark ? Colors.grey[400] : Colors.grey[600],
-                        fontSize: isWeb ? 20 : 16,
+                    return GridView.builder(
+                      padding: EdgeInsets.only(
+                        left: isWeb ? 16 : 12,
+                        right: isWeb ? 16 : 12,
+                        top: isWeb ? 16 : 12,
+                        bottom: isWeb ? 48 : 36,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Try adjusting your search or filter criteria',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: isDark ? Colors.grey[500] : Colors.grey[500],
-                        fontSize: isWeb ? 14 : 12,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columnCount,
+                        childAspectRatio: aspectRatio,
+                        crossAxisSpacing: isWeb ? 16 : 8,
+                        mainAxisSpacing: isWeb ? 16 : 8,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: EdgeInsets.all(isWeb ? 16 : 12),
-              sliver: SliverToBoxAdapter(
-                child: Center(
-                  child: Container(
-                    constraints: BoxConstraints(maxWidth: isWeb ? 1400 : double.infinity),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final columnCount = _getColumnCount(constraints.maxWidth);
-                        final aspectRatio = _getAspectRatio(constraints.maxWidth);
-
-                        return GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: columnCount,
-                            childAspectRatio: aspectRatio,
-                            crossAxisSpacing: isWeb ? 16 : 8,
-                            mainAxisSpacing: isWeb ? 16 : 8,
-                          ),
-                          itemCount: _filteredSlots.length,
-                          itemBuilder: (context, index) {
-                            final slot = _filteredSlots[index];
-                            return FadeTransition(
-                              opacity: _fadeAnimation,
-                              child: _buildSlotCard(slot, isDark, isWeb),
-                            );
-                          },
+                      itemCount: _filteredSlots.length,
+                      itemBuilder: (context, index) {
+                        final slot = _filteredSlots[index];
+                        return FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: _buildSlotCard(slot, isDark, isWeb),
                         );
                       },
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddSlotDialog,
@@ -994,6 +887,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       ),
     );
   }
+
 
 
   void _showDimensionsBottomSheet() {
@@ -1086,97 +980,23 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
 
 
 
-  Widget _buildFilterDropdown(String title, String value, List<Map<String, String>> items, ValueChanged<String?> onChanged, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white : Colors.black,
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: value,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 8,
-            ),
-            isDense: true,
-          ),
-          items: items.map((item) => DropdownMenuItem(
-            value: item['value'],
-            child: Text(item['text']!, style: const TextStyle(fontSize: 14)),
-          )).toList(),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, IconData icon, Color color, bool isDark, bool isWeb) {
-    return Container(
-      padding: EdgeInsets.all(isWeb ? 16 : 12),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1F2937) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? Colors.grey[700]! : Colors.grey[200]!,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: EdgeInsets.all(isWeb ? 12 : 8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: isWeb ? 24 : 20),
-          ),
-          SizedBox(height: isWeb ? 12 : 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: isWeb ? 24 : 18,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: isWeb ? 14 : 12,
-              color: isDark ? Colors.grey[400] : Colors.grey[600],
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSlotCard(ParkingSlot slot, bool isDark, bool isWeb) {
-    final statusColor = _getStatusColor(slot);
-    final statusText = _getStatusText(slot);
+    // Find the dimension details if available
+    String? dimensionDisplay;
+    if (slot.dimension != null) {
+      // slot.dimension is like "Dimension 1" or "Dimension1"
+      final dimKey = slot.dimension!.replaceAll(' ', '');
+      final dim = _carDimensions.firstWhere(
+        (d) => d.name.replaceAll(' ', '') == dimKey,
+        orElse: () => CarDimension(id: '', name: '', width: 0, height: 0, area: 0),
+      );
+      if (dim.width > 0 && dim.height > 0) {
+        dimensionDisplay = '${dim.width}m × ${dim.height}m';
+      } else {
+        dimensionDisplay = slot.dimension;
+      }
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -1239,7 +1059,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            '${slot.vehicleType} • ${slot.slotPriority}',
+                            '${slot.slotPriority}',
                             style: TextStyle(
                               fontSize: isWeb ? 13 : 11,
                               color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -1268,47 +1088,34 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                   ],
                 ),
 
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: statusColor.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(
-                      fontSize: isWeb ? 11 : 10,
-                      fontWeight: FontWeight.w600,
-                      color: statusColor,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
 
 
           // Details
-          if (slot.dimension != null || slot.vehicleCompatibility != null || slot.remarks != null)
+          if (dimensionDisplay != null || slot.vehicleCompatibility != null || slot.remarks != null)
             Padding(
               padding: EdgeInsets.symmetric(horizontal: isWeb ? 16 : 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (slot.dimension != null) ...[
+                  if (dimensionDisplay != null) ...[
                     Row(
                       children: [
-                        Icon(
-                          Icons.straighten,
-                          size: isWeb ? 16 : 14,
-                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        Text(
+                          'Dimensions: ',
+                          style: TextStyle(
+                            fontSize: isWeb ? 13 : 11,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            slot.dimension!,
+                            dimensionDisplay,
                             style: TextStyle(
                               fontSize: isWeb ? 13 : 11,
                               color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -1327,12 +1134,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                   if (slot.vehicleCompatibility != null) ...[
                     Row(
                       children: [
-                        Icon(
-                          Icons.settings,
-                          size: isWeb ? 16 : 14,
-                          color: isDark ? Colors.grey[400] : Colors.grey[600],
-                        ),
-                        const SizedBox(width: 4),
+
                         Expanded(
                           child: Text(
                             'Level: ${slot.vehicleCompatibility}',
@@ -1352,10 +1154,14 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.comment,
-                          size: isWeb ? 16 : 14,
-                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        Text(
+                          'Remarks: ',
+                          style: TextStyle(
+                            fontSize: isWeb ? 13 : 11,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(width: 4),
                         Expanded(
@@ -1481,18 +1287,6 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    Text(
-                                      '${daysLeft}d left',
-                                      style: TextStyle(
-                                        fontSize: isWeb ? 10 : 9,
-                                        fontWeight: FontWeight.w600,
-                                        color: daysLeft < 0
-                                            ? Colors.red
-                                            : daysLeft < 30
-                                            ? Colors.orange
-                                            : Colors.green,
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ],
@@ -1610,5 +1404,161 @@ class CarDimension {
   }
 
   String get displayText => '$name (${width}m × ${height}m - ${area.toStringAsFixed(1)}m²)';
+}
+
+// --- Persistent Header Delegate for smooth, padded header ---
+class _SlotsHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double minExtent;
+  final double maxExtent;
+  final bool isWeb;
+  final bool isDark;
+  final int carCount;
+  final int bikeCount;
+  final String selectedVehicleTypeChip;
+  final VoidCallback onCarChipTap;
+  final VoidCallback onBikeChipTap;
+  final TextEditingController searchController;
+  final VoidCallback onShowDimensions;
+
+  _SlotsHeaderDelegate({
+    required this.minExtent,
+    required this.maxExtent,
+    required this.isWeb,
+    required this.isDark,
+    required this.carCount,
+    required this.bikeCount,
+    required this.selectedVehicleTypeChip,
+    required this.onCarChipTap,
+    required this.onBikeChipTap,
+    required this.searchController,
+    required this.onShowDimensions,
+  });
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final theme = Theme.of(context);
+    return Container(
+      color: isDark ? const Color(0xFF1F2937) : Colors.white,
+      padding: EdgeInsets.only(
+        top: isWeb ? 32 : 20, // Top padding for header
+        left: isWeb ? 24 : 16,
+        right: isWeb ? 24 : 16,
+        bottom: 0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title and Car Dimensions Button
+          Row(
+            children: [
+              Text(
+                'Parking Slots',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black,
+                  fontSize: isWeb ? 24 : 20,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onShowDimensions,
+                icon: const Icon(Icons.calculate, size: 18),
+                label: const Text('Car dimensions'),
+                style: TextButton.styleFrom(
+                  foregroundColor: isDark ? Colors.white : Colors.blue,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Search Bar
+          Container(
+            constraints: BoxConstraints(maxWidth: isWeb ? 800 : double.infinity),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF374151) : Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.grey[700]! : Colors.grey[300]!,
+              ),
+            ),
+            child: TextField(
+              controller: searchController,
+              decoration: InputDecoration(
+                hintText: 'Search by slot, name, or email...',
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[500],
+                  fontSize: isWeb ? 14 : 12,
+                ),
+                prefixIcon: Icon(
+                  Icons.search,
+                  color: isDark ? Colors.grey[400] : Colors.grey[500],
+                ),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: isWeb ? 14 : 12,
+                ),
+              ),
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontSize: isWeb ? 14 : 12,
+              ),
+            ),
+          ),
+          SizedBox(height: isWeb ? 16 : 12),
+          // Filter Chips Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              FilterChip(
+                label: Row(
+                  children: [
+                    Icon(Icons.directions_car, size: 16, color: selectedVehicleTypeChip == 'CAR' ? Colors.white : Colors.green),
+                    const SizedBox(width: 4),
+                    Text('Car ($carCount)'),
+                  ],
+                ),
+                selected: selectedVehicleTypeChip == 'CAR',
+                onSelected: (_) => onCarChipTap(),
+                selectedColor: Colors.green,
+                backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                labelStyle: TextStyle(
+                  color: selectedVehicleTypeChip == 'CAR' ? Colors.white : Colors.green,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 10),
+              FilterChip(
+                label: Row(
+                  children: [
+                    Icon(Icons.two_wheeler, size: 16, color: selectedVehicleTypeChip == 'BIKE' ? Colors.white : Colors.purple),
+                    const SizedBox(width: 4),
+                    Text('Bike ($bikeCount)'),
+                  ],
+                ),
+                selected: selectedVehicleTypeChip == 'BIKE',
+                onSelected: (_) => onBikeChipTap(),
+                selectedColor: Colors.purple,
+                backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                labelStyle: TextStyle(
+                  color: selectedVehicleTypeChip == 'BIKE' ? Colors.white : Colors.purple,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SlotsHeaderDelegate oldDelegate) =>
+      carCount != oldDelegate.carCount ||
+      bikeCount != oldDelegate.bikeCount ||
+      selectedVehicleTypeChip != oldDelegate.selectedVehicleTypeChip ||
+      isWeb != oldDelegate.isWeb ||
+      isDark != oldDelegate.isDark;
 }
 

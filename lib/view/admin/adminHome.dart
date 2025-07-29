@@ -154,9 +154,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               'assets/txt.png',
               height: 40,
               fit: BoxFit.contain,
-              // Add color filter for dark mode compatibility if needed
-
             ),
+
           ],
         ),
         actions: [
@@ -180,105 +179,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Welcome Card
-                  // Welcome Card - Colorful version for dark mode
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(isLargeScreen ? 32 : 24),
-                    decoration: BoxDecoration(
-                      gradient: theme.brightness == Brightness.dark
-                          ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          const Color(0xFF1A1A2E),
-                          const Color(0xFF16213E),
-                          const Color(0xFF0F3460),
-                        ],
-                      )
-                          : LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Colors.blue.shade50,
-                          Colors.indigo.shade50,
-                          Colors.purple.shade50,
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: theme.brightness == Brightness.dark
-                              ? Colors.blue.withOpacity(0.2)
-                              : colorScheme.shadow.withOpacity(0.1),
-                          blurRadius: 15,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                      border: theme.brightness == Brightness.dark
-                          ? Border.all(
-                        color: Colors.blue.withOpacity(0.3),
-                        width: 1,
-                      )
-                          : null,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-
-
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Welcome back, ${_getDisplayName()}!',
-                                    style: TextStyle(
-                                      fontSize: isLargeScreen ? 24 : 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: theme.brightness == Brightness.dark
-                                          ? Colors.white
-                                          : colorScheme.onSurface,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 2,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    _currentUser?.email ?? 'Ready to manage the lot like a pro?',
-                                    style: TextStyle(
-                                      fontSize: isLargeScreen ? 16 : 14,
-                                      color: theme.brightness == Brightness.dark
-                                          ? Colors.blue.shade200
-                                          : colorScheme.onSurface.withOpacity(0.7),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-
-
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
+                  // Admin Controls Section (Quick Actions)
                   Text(
-                    'Quick Actions',
+                    'Admin Controls',
                     style: TextStyle(
                       fontSize: isLargeScreen ? 22 : 18,
                       fontWeight: FontWeight.bold,
                       color: colorScheme.onSurface,
                     ),
                   ),
-
                   SizedBox(height: isLargeScreen ? 24 : 20),
-
-                  // Action Cards Grid - Responsive
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final crossAxisCount = _getGridCount(context);
@@ -292,30 +202,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         mainAxisSpacing: isLargeScreen ? 24 : 16,
                         childAspectRatio: childAspectRatio,
                         children: [
+
+
+
+
+
                           _buildActionCard(
-                            icon: Icons.people_outline,
-                            title: 'All Users',
-                            subtitle: 'Manage user accounts',
-                            color: Colors.blue,
+                            icon: Icons.auto_graph_rounded,
+                            title: 'Booking Dashboard',
+                            color: Colors.greenAccent,
                             onTap: () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const AllUsersPage(),
-                                ),
-                              );
-                            },
-                          ),
-                          _buildActionCard(
-                            icon: Icons.local_parking,
-                            title: 'All Slots',
-                            subtitle: 'Manage privileges',
-                            color: Colors.blueAccent,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ParkingSlotsPage(),
+                                  builder: (context) => const BookingDashboard(),
                                 ),
                               );
                             },
@@ -324,7 +224,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           _buildActionCard(
                             icon: Icons.admin_panel_settings,
                             title: 'Slots Allocation',
-                            subtitle: 'Allocate to Users',
                             color: Colors.purple,
                             onTap: () {
                               Navigator.push(
@@ -338,15 +237,27 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
 
                           _buildActionCard(
-                            icon: Icons.update,
-                            title: 'Booking Dashboard',
-                            subtitle: '',
-                            color: Colors.greenAccent,
+                            icon: Icons.people_outline,
+                            title: 'All Users',
+                            color: Colors.orangeAccent,
                             onTap: () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const BookingDashboard(),
+                                  builder: (context) => const AllUsersPage(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildActionCard(
+                            icon: Icons.local_parking,
+                            title: 'All Slots',
+                            color: Colors.blueAccent,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const ParkingSlotsPage(),
                                 ),
                               );
                             },
@@ -375,7 +286,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
                   SizedBox(height: isLargeScreen ? 48 : 32),
 
-                  // Quick Stats Section
+                  // User Controls Section (BookingCards)
+                  Text(
+                    'User Controls',
+                    style: TextStyle(
+                      fontSize: isLargeScreen ? 22 : 18,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  SizedBox(height: isLargeScreen ? 24 : 16),
                   Container(
                     width: double.infinity,
                     padding: EdgeInsets.all(isLargeScreen ? 32 : 20),
@@ -474,7 +394,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Widget _buildActionCard({
     required IconData icon,
     required String title,
-    required String subtitle,
     required Color color,
     required VoidCallback onTap,
   }) {
@@ -605,25 +524,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       ),
                     ),
 
-                    // Subtitle - only show if there's enough space and screen is large enough
-                    if (isLargeScreen && !isSmall && !isVerySmall) ...[
-                      const SizedBox(height: 4),
-                      Flexible(
-                        flex: 1,
-                        child: Text(
-                          subtitle,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: colorScheme.onSurface.withOpacity(0.7),
-                            height: 1.2,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -677,3 +577,4 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 }
+
