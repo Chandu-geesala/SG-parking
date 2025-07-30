@@ -424,7 +424,7 @@ class _LandingPageState extends State<LandingPage>
               style: TextStyle(
                 color: isDarkMode ? Colors.white : Colors.indigo,
                 fontSize: 26,
-                fontFamily: "Noto",
+                fontFamily: "Mont",
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -655,7 +655,6 @@ class _LandingPageState extends State<LandingPage>
           },
           child: AnimatedDefaultTextStyle(
             style: TextStyle(
-              fontFamily: "Noto",
               color: Colors.blue.shade700,
               decoration: TextDecoration.underline,
               fontSize: 14,
@@ -708,7 +707,7 @@ class _LandingPageState extends State<LandingPage>
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
-              fontFamily: "Noto",
+              fontFamily: "Mont",
               fontWeight: FontWeight.bold,
             ),
           ),

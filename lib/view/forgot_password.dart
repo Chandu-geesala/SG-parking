@@ -488,7 +488,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               child: const Text(
                 'SENECA',
                 style: TextStyle(
-                  fontSize: 120,
+                  fontFamily: "Mont",fontSize: 120,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFF8FBC8F),
                   letterSpacing: 8,
@@ -508,7 +508,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               child: const Text(
                 'GLOBAL',
                 style: TextStyle(
-                  fontSize: 80,
+                  fontFamily: "Mont",fontSize: 80,
                   fontWeight: FontWeight.w900,
                   color: Color(0xFFFF7F50),
                   letterSpacing: 6,
@@ -738,26 +738,14 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
                   "Reset Password",
                   style: TextStyle(
                     color: isDarkMode ? Colors.white : const Color(0xFF2E5C2E),
-                    fontSize: 28,
-                    fontFamily: "Noto",
+                    fontFamily: "Mont",fontSize: 28,
+
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              isEmailSent
-                  ? "Check your email for the reset link"
-                  : "Enter your email to receive reset link",
-              style: TextStyle(
-                color: isDarkMode
-                    ? _currentTheme.textTheme.bodyMedium!.color
-                    : const Color(0xFF666666),
-                fontSize: 16,
-              ),
-              textAlign: TextAlign.center,
-            ),
+
           ],
         ),
       ),
@@ -865,7 +853,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
             'Email Sent Successfully!',
             style: TextStyle(
               color: _currentTheme.textTheme.bodyLarge!.color,
-              fontSize: 20,
+             fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -874,7 +862,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
             'We\'ve sent a password reset link to ${emailController.text}',
             style: TextStyle(
               color: _currentTheme.textTheme.bodyMedium!.color,
-              fontSize: 14,
+              fontFamily: "Mont",fontSize: 14,
             ),
             textAlign: TextAlign.center,
           ),
@@ -913,8 +901,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
             canResend ? "RESEND EMAIL" : "RESEND IN ${resendTimer}s",
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 17,
-              fontFamily: "Noto",
+              fontFamily: "Mont",fontSize: 17,
+
               fontWeight: FontWeight.bold,
               letterSpacing: 0.8,
             ),
@@ -965,7 +953,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               color: isDarkMode
                   ? _currentTheme.textTheme.bodyMedium!.color
                   : const Color(0xFF999999),
-              fontSize: 16,
             ),
             prefixIcon: Container(
               margin: const EdgeInsets.only(right: 10),
@@ -1059,8 +1046,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
             "SEND RESET LINK",
             style: TextStyle(
               color: Colors.white,
-              fontSize: 17,
-              fontFamily: "Noto",
+              fontFamily: "Mont",fontSize: 17,
               fontWeight: FontWeight.bold,
               letterSpacing: 0.8,
             ),
@@ -1085,8 +1071,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               'Back to Login',
               style: TextStyle(
                 color: isDarkMode ? Colors.orange : const Color(0xFFFF7F50),
-                fontSize: 16,
-                fontFamily: "Noto",
+                fontFamily: "Mont",fontSize: 16,
                 fontWeight: FontWeight.bold,
                 decoration: TextDecoration.underline,
                 decorationColor: isDarkMode ? Colors.orange : const Color(0xFFFF7F50),

@@ -10,8 +10,7 @@ class AuthService {
   // SECTION 1: CONSTANTS AND CONFIGURATION
 
   static const Duration _cacheExpiry = Duration(minutes: 30);
-  static const Duration _fcmTokenExpiry = Duration(hours: 12);
-  static const int _maxRetryAttempts = 3;
+
 
   // SECTION 2: PLATFORM AND CONNECTION STATE
 

@@ -145,27 +145,8 @@ class _MysplashScreenState extends State<MysplashScreen> {
               width: 120,
               height: 120,
             ),
-            const SizedBox(height: 32),
 
-            // Loading indicator
-            CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(
-                isDarkMode ? Colors.white : const Color(0xFF6C5CE7),
-              ),
-              strokeWidth: 3,
-            ),
 
-            const SizedBox(height: 24),
-
-            // Loading text
-            Text(
-              'Loading...',
-              style: TextStyle(
-                color: isDarkMode ? Colors.white70 : Colors.grey[600],
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
           ],
         ),
       ),

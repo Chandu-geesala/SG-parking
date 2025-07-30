@@ -169,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         'Error: ${snapshot.error}',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.error,
-                          fontSize: 16,
+                          fontFamily: "Mont",fontSize: 16,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -235,11 +235,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Random welcome messages
     final welcomeMessages = [
-      "Hi $userName",
+      "Hi $userName 👋",
       "Welcome $userName",
       "Hello $userName",
-      "$userName is here",
-      "Good to see you $userName",
       "Back again $userName",
     ];
 
@@ -267,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
               randomMessage,
               style: TextStyle(
                 color: Colors.white,
-                fontSize: isLargeScreen ? 26 : 22,
+                fontFamily: "Mont",fontSize: isLargeScreen ? 26 : 22,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -337,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? 'Slot Request Rejected'
                     : 'Slot Request Pending',
                 style: TextStyle(
-                  fontSize: isLargeScreen ? 26 : 22,
+                  fontFamily: "Mont",fontSize: isLargeScreen ? 26 : 22,
                   fontWeight: FontWeight.bold,
                   color: status == 'approved'
                       ? Colors.green[800]
@@ -351,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 'Your request to admin is currently "$status".\n${dateStr.isNotEmpty ? 'Submitted: $dateStr' : ''}',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: isLargeScreen ? 18 : 16,
+                  fontFamily: "Mont",fontSize: isLargeScreen ? 18 : 16,
                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                   height: 1.4,
                 ),
@@ -363,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(
                     color: Colors.red[400],
                     fontWeight: FontWeight.w600,
-                    fontSize: isLargeScreen ? 16 : 14,
+                    fontFamily: "Mont",fontSize: isLargeScreen ? 16 : 14,
                   ),
                 ),
               ],
@@ -388,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 'No Parking Slot Assigned',
                 style: TextStyle(
-                  fontSize: isLargeScreen ? 26 : 22,
+                  fontFamily: "Mont",fontSize: isLargeScreen ? 26 : 22,
                   fontWeight: FontWeight.bold,
                   color: Theme.of(context).colorScheme.primary,
                 ),
@@ -398,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 'You don\'t have a parking slot assigned yet.\nContact admin to request one.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: isLargeScreen ? 18 : 16,
+                  fontFamily: "Mont",fontSize: isLargeScreen ? 18 : 16,
                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                   height: 1.4,
                 ),
@@ -421,7 +419,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(isLargeScreen ? 16 : 12),
                     ),
                     textStyle: TextStyle(
-                      fontSize: isLargeScreen ? 18 : 16,
+                      fontFamily: "Mont",fontSize: isLargeScreen ? 18 : 16,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

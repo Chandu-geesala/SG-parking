@@ -300,6 +300,7 @@ class _BookingCardsState extends State<BookingCards> {
                   'Let us know when you won\'t need parking ',
                   style: TextStyle(
                     fontSize: 16,
+
                     fontWeight: FontWeight.w600,
                     color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
                   ),
@@ -574,7 +575,7 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(height: 12),
               _buildViewBookingDetailsOption(date),
             ] else if (isSlotUnavailable) ...[
-              // âœ… FIXED: User's assigned slot is booked by others (RED state)
+              //  User's assigned slot is booked by others (RED state)
               // Only show "See Available Slots" - no leave/WFH options
               _buildSlotBookedByOthersCard(date),
               const SizedBox(height: 16),
@@ -1267,6 +1268,8 @@ class _BookingCardsState extends State<BookingCards> {
     return InkWell(
 // âœ… REPLACE the onTap in _buildRemoveOption with this:
       onTap: () async {
+        Navigator.pop(context); // Immediately close the sheet
+
         final normalizedDate = DateTime(date.year, date.month, date.day);
 
         setState(() {
@@ -1287,7 +1290,6 @@ class _BookingCardsState extends State<BookingCards> {
                 _datePreferences.remove(normalizedDate);
                 _unavailableDates.remove(normalizedDate);
               });
-
               _backend.showSnackBar(context, result['message']);
             } else {
               _backend.showSnackBar(context, result['message'], isError: true);
@@ -1300,9 +1302,8 @@ class _BookingCardsState extends State<BookingCards> {
             _isUpdatingPreferences = false;
           });
         }
-
-        Navigator.pop(context);
-      },
+      }
+      ,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -1352,59 +1353,58 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
+  Future<void> _updatePreferenceBackend(DateTime normalizedDate, String value) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final result = await _backend.updateUserAvailabilityDeclaration(
+          date: normalizedDate,
+          userEmail: user.email!,
+          reason: value,
+        );
 
+        if (result['success']) {
+          _backend.showSnackBar(context, result['message']);
+        } else {
+          // Revert UI on failure
+          setState(() {
+            _datePreferences.remove(normalizedDate);
+            _unavailableDates.remove(normalizedDate);
+          });
+          _backend.showSnackBar(context, result['message'], isError: true);
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _datePreferences.remove(normalizedDate);
+        _unavailableDates.remove(normalizedDate);
+      });
+      _backend.showSnackBar(context, 'Error saving preference: $e', isError: true);
+    } finally {
+      setState(() {
+        _isUpdatingPreferences = false;
+      });
+    }
+  }
 
   Widget _buildPreferenceOption(DateTime date, String value, String title, String subtitle, IconData icon, Color color) {
     final isSelected = _datePreferences[date] == value;
 
     return InkWell(
-      onTap: () async {
-        final normalizedDate = DateTime(date.year, date.month, date.day);
 
-        // âœ… IMMEDIATELY update UI to show the selection
-        setState(() {
-          _isUpdatingPreferences = true;
-          // Optimistically update the UI
-          _datePreferences[normalizedDate] = value;
-          _unavailableDates.add(normalizedDate);
-        });
+        onTap: () {
+          final normalizedDate = DateTime(date.year, date.month, date.day);
 
-        try {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final result = await _backend.updateUserAvailabilityDeclaration(
-              date: normalizedDate,
-              userEmail: user.email!,
-              reason: value, // 'leave' or 'wfh'
-            );
+          Navigator.pop(context); // Immediately close the bottom sheet
 
-            if (result['success']) {
-              // Success - UI already updated optimistically
-              _backend.showSnackBar(context, result['message']);
-            } else {
-              // Failed - revert the optimistic update
-              setState(() {
-                _datePreferences.remove(normalizedDate);
-                _unavailableDates.remove(normalizedDate);
-              });
-              _backend.showSnackBar(context, result['message'], isError: true);
-            }
-          }
-        } catch (e) {
-          // Error - revert the optimistic update
           setState(() {
-            _datePreferences.remove(normalizedDate);
-            _unavailableDates.remove(normalizedDate);
+            _isUpdatingPreferences = true;
+            _datePreferences[normalizedDate] = value; // Immediately update UI marking
+            _unavailableDates.add(normalizedDate);
           });
-          _backend.showSnackBar(context, 'Error saving preference: $e', isError: true);
-        } finally {
-          setState(() {
-            _isUpdatingPreferences = false;
-          });
-        }
 
-        Navigator.pop(context);
-      },
+          _updatePreferenceBackend(normalizedDate, value);
+        },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -1599,7 +1599,6 @@ class _BookingCardsState extends State<BookingCards> {
           _buildVehicleInfoCard(vehicleType),
           const SizedBox(height: 16),
 
-          const SizedBox(height: 20),
         ],
       ),
     );

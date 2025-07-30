@@ -148,6 +148,8 @@ class BookingBackend {
             .where('bookedBy', isEqualTo: userEmail);
         final slotDoc = await transaction.get(slotRef);
         final userBookings = await userBookingsRef.limit(1).get();
+
+
         if (slotDoc.exists) {
           final bookedBy = slotDoc.data()?['bookedBy'] as String?;
           if (bookedBy == userEmail) {
