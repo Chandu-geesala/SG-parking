@@ -46,6 +46,10 @@ class _BookingCardsState extends State<BookingCards> {
   List<Map<String, dynamic>> _userVehicles = [];
   bool _isLoadingVehicles = false;
 
+  Future<List<Map<String, dynamic>>>? _availableSlotsFuture; // For slots fetching
+
+
+  String? _selectedDimensionFilter;
 
 
   Map<DateTime, Map<String, dynamic>> _weeklySlotData = {};
@@ -57,16 +61,16 @@ class _BookingCardsState extends State<BookingCards> {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
 
-  // ✅ ADD these helper methods after the constants
+  // âœ… ADD these helper methods after the constants
   String _getDayName(DateTime date) => _dayNames[date.weekday];
   String _getMonthName(DateTime date) => _monthNames[date.month];
 
-  // ✅ Helper method for formatted date string
+  // âœ… Helper method for formatted date string
   String _getFormattedDateString(DateTime date) {
     return '${_getDayName(date)}, ${_getMonthName(date)} ${date.day}';
   }
 
-  // ✅ Helper method for full date string with year
+  // âœ… Helper method for full date string with year
   String _getFullDateString(DateTime date) {
     return '${_getMonthName(date)} ${date.day}, ${date.year}';
   }
@@ -85,6 +89,15 @@ class _BookingCardsState extends State<BookingCards> {
   // Add these state variables after existing ones
 
 
+  void _fetchSlots(DateTime date, String userVehicleType) {
+    setState(() {
+      _availableSlotsFuture = _backend.getAvailableSlotsWithUserDetails(
+        date: date,
+        vehicleTypeFilter: userVehicleType,
+        dimensionFilter: _selectedDimensionFilter,
+      );
+    });
+  }
 
 
 
@@ -149,7 +162,7 @@ class _BookingCardsState extends State<BookingCards> {
       _loadBookings(),
 
       _loadPreferencesFromBackend(),
-      _loadWeeklySlotData(), // ✅ NEW: Load weekly slot data
+      _loadWeeklySlotData(), // âœ… NEW: Load weekly slot data
     ]);
   }
 
@@ -487,10 +500,10 @@ class _BookingCardsState extends State<BookingCards> {
     final bookedSlotId = slotData?['bookedSlotId'] as String?;
     final bookingType = slotData?['bookingType'] as String? ?? 'regular';
 
-    // ✅ NEW: Check if assigned slot is booked by others
+    // âœ… NEW: Check if assigned slot is booked by others
     final assignedSlotBookedByOther = slotData?['assignedSlotBookedByOther'] == true;
 
-    // ✅ FIX: Determine slot availability status for UI logic
+    // âœ… FIX: Determine slot availability status for UI logic
     final isSlotAvailable = !isSlotBooked; // Blue state - slot is available
     final isSlotUnavailable = assignedSlotBookedByOther; // Red state - slot booked by others
 
@@ -561,13 +574,13 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(height: 12),
               _buildViewBookingDetailsOption(date),
             ] else if (isSlotUnavailable) ...[
-              // ✅ FIXED: User's assigned slot is booked by others (RED state)
+              // âœ… FIXED: User's assigned slot is booked by others (RED state)
               // Only show "See Available Slots" - no leave/WFH options
               _buildSlotBookedByOthersCard(date),
               const SizedBox(height: 16),
               _buildSeeAvailableSlotsOption(date),
             ] else if (isSlotAvailable) ...[
-              // ✅ FIXED: Slot is available (BLUE state)
+              // âœ… FIXED: Slot is available (BLUE state)
               // Show book slot and leave/WFH options - no "See Available Slots"
               _buildBookSlotOption(date),
               const SizedBox(height: 12),
@@ -575,7 +588,7 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(height: 12),
               _buildPreferenceOption(date, 'wfh', 'Work From Home', 'I will be working from home', Icons.home_work, Colors.blue),
             ] else ...[
-              // ✅ FALLBACK: Default case for any other state
+              // âœ… FALLBACK: Default case for any other state
               _buildBookSlotOption(date),
               const SizedBox(height: 12),
               _buildSeeAvailableSlotsOption(date),
@@ -594,7 +607,7 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-// ✅ UPDATED: Header subtitle method with unavailable status
+// âœ… UPDATED: Header subtitle method with unavailable status
   String _getCombinedHeaderSubtitle(bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, String? bookedSlotId, String bookingType, bool assignedSlotBookedByOther) {
     if (hasDeclaration) return 'You have marked unavailability';
     if (isBookedByUser) {
@@ -610,7 +623,7 @@ class _BookingCardsState extends State<BookingCards> {
     return 'Available - Choose an option';
   }
 
-// ✅ NEW: Method for any slot booking card
+// âœ… NEW: Method for any slot booking card
   Widget _buildUserBookedAnySlotCard(DateTime date, String? slotId, String bookingType) {
     final isAlternative = bookingType == 'alternative';
     final color = isAlternative ? Colors.purple[600]! : Colors.green[600]!;
@@ -669,7 +682,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-// ✅ NEW: View booking details option
+// âœ… NEW: View booking details option
   Widget _buildViewBookingDetailsOption(DateTime date) {
     return InkWell(
       onTap: () {
@@ -869,10 +882,10 @@ class _BookingCardsState extends State<BookingCards> {
             _unavailableDates.remove(date);
           });
 
-          // ✅ IMMEDIATE: Clear weekly cache for this date
+          // âœ… IMMEDIATE: Clear weekly cache for this date
           _weeklySlotData.remove(date);
 
-          // ✅ REFRESH: Reload actual slot status
+          // âœ… REFRESH: Reload actual slot status
           await _loadSingleDateSlotStatus(date);
 
           _backend.showSnackBar(context, result['message']);
@@ -1252,7 +1265,7 @@ class _BookingCardsState extends State<BookingCards> {
 
   Widget _buildRemoveOption(DateTime date) {
     return InkWell(
-// ✅ REPLACE the onTap in _buildRemoveOption with this:
+// âœ… REPLACE the onTap in _buildRemoveOption with this:
       onTap: () async {
         final normalizedDate = DateTime(date.year, date.month, date.day);
 
@@ -1348,7 +1361,7 @@ class _BookingCardsState extends State<BookingCards> {
       onTap: () async {
         final normalizedDate = DateTime(date.year, date.month, date.day);
 
-        // ✅ IMMEDIATELY update UI to show the selection
+        // âœ… IMMEDIATELY update UI to show the selection
         setState(() {
           _isUpdatingPreferences = true;
           // Optimistically update the UI
@@ -1448,7 +1461,7 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-// ✅ ADD this new method to load from backend
+// âœ… ADD this new method to load from backend
   Future<void> _loadPreferencesFromBackend() async {
     setState(() {
       _isLoadingPreferences = true;
@@ -1475,7 +1488,7 @@ class _BookingCardsState extends State<BookingCards> {
         }
       }
     } catch (e) {
-      print('❌ Error loading preferences from backend: $e');
+      print('âŒ Error loading preferences from backend: $e');
     } finally {
       setState(() {
         _isLoadingPreferences = false;
@@ -1558,7 +1571,108 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
+  Widget _buildSlotDashboard(Map<String, dynamic> slotData) {
+    final slotId = slotData['slotId'] as String;
+    final data = slotData['slotData'] as Map<String, dynamic>;
+    final userInfo = slotData['userInfo'] as Map<String, dynamic>;
 
+    final vehicleType = data['vehicleType'] as String? ?? 'UNKNOWN';
+    final slotPriority = data['slotPriority'] as String? ?? 'unknown';
+    final vehicleCompatibility = data['VehicleCompatibility'] as String?;
+    final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSlotInfoCard(
+              slotId, vehicleType, slotPriority, vehicleCompatibility),
+          const SizedBox(height: 16),
+          _buildCombinedWeeklyParkingCard(),
+
+          // const SizedBox(height: 16),
+          // _buildrulesCard(),
+
+          const SizedBox(height: 16),
+          _buildSlotUsersCard(allotedTo),
+          const SizedBox(height: 16),
+          _buildVehicleInfoCard(vehicleType),
+          const SizedBox(height: 16),
+
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildSlotInfoCard(String slotId, String vehicleType,
+      String slotPriority, String? vehicleCompatibility) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).cardTheme.shadowColor ??
+                (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.1)),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _getVehicleColor(vehicleType).withOpacity(
+                      Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.1
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _getVehicleIcon(vehicleType),
+                  color: _getVehicleColor(vehicleType),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your Assigned Slot',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      slotId.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _getPreferenceIcon(DateTime date) {
     final preference = _datePreferences[date];
@@ -1585,7 +1699,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (isBookedByUser) {
         return isDark ? Colors.green[900]!.withOpacity(0.3) : Colors.green[50]!;
       } else {
-        // ✅ FIX: Show red for unavailable (booked by others)
+        // âœ… FIX: Show red for unavailable (booked by others)
         return isDark ? Colors.red[900]!.withOpacity(0.3) : Colors.red[50]!;
       }
     }
@@ -1600,7 +1714,7 @@ class _BookingCardsState extends State<BookingCards> {
     if (hasDeclaration) return Colors.orange[600]!;
     if (isSlotBooked) {
       if (isBookedByUser) return Colors.green[600]!;
-      // ✅ FIX: Show red border for unavailable
+      // âœ… FIX: Show red border for unavailable
       return Colors.red[600]!;
     }
     if (isToday) return Theme.of(context).colorScheme.primary;
@@ -1612,7 +1726,7 @@ class _BookingCardsState extends State<BookingCards> {
     if (hasDeclaration) return Colors.orange[700]!;
     if (isSlotBooked) {
       if (isBookedByUser) return Colors.green[700]!;
-      // ✅ FIX: Show red text for unavailable
+      // âœ… FIX: Show red text for unavailable
       return Colors.red[700]!;
     }
     if (isToday) return Theme.of(context).colorScheme.primary;
@@ -1630,7 +1744,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (isBookedByUser) {
         return Icon(Icons.check_circle, size: 16, color: Colors.green[600]);
       } else {
-        // ✅ FIX: Show block icon for unavailable
+        // âœ… FIX: Show block icon for unavailable
         return Icon(Icons.block, size: 16, color: Colors.red[600]);
       }
     }
@@ -1755,7 +1869,7 @@ class _BookingCardsState extends State<BookingCards> {
                 Icon(_getVehicleIcon(vehicleType), size: 16, color: primaryColor),
                 const SizedBox(width: 8),
                 Text(
-                  '${vehicleType.toUpperCase()} • ${_getFormattedDateString(date)}',
+                  '${vehicleType.toUpperCase()} â€¢ ${_getFormattedDateString(date)}',
                   style: TextStyle(
                     fontSize: 14,
                     color: primaryColor,
@@ -2173,7 +2287,7 @@ class _BookingCardsState extends State<BookingCards> {
         );
       case BookingStatus.unavailable:
         return ElevatedButton.icon(
-          onPressed: () => _showAvailableSlotsBottomSheet(_selectedBookingDate), // ✅ NEW
+          onPressed: () => _showAvailableSlotsBottomSheet(_selectedBookingDate), // âœ… NEW
           icon: Icon(Icons.search, size: 20),
           label: Text('Request Available Slots'),
           style: ElevatedButton.styleFrom(
@@ -2218,226 +2332,31 @@ class _BookingCardsState extends State<BookingCards> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: const Offset(0, -5),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // Handle bar
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[400],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-
-              // Header (simplified - no toggle)
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.local_parking,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Available Slots',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            _getFormattedDateString(date),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(
-                        Icons.close,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Content
-              Expanded(
-                child: FutureBuilder<Map<String, dynamic>?>(
-                  future: _userSlotFuture,
-                  builder: (context, userSlotSnapshot) {
-                    if (userSlotSnapshot.connectionState == ConnectionState.waiting) {
-                      return _buildLoadingState();
-                    }
-
-                    if (userSlotSnapshot.hasError || userSlotSnapshot.data == null) {
-                      return _buildErrorState('Unable to get user vehicle type');
-                    }
-
-                    final userSlotData = userSlotSnapshot.data!['slotData'] as Map<String, dynamic>;
-                    final userVehicleType = userSlotData['vehicleType'] as String? ?? 'BIKE';
-
-                    return Column(
-                      children: [
-                        // Car filter chips (only show for cars)
-                        if (userVehicleType.toUpperCase() == 'CAR')
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.directions_car_rounded,
-                                      size: 16,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Your Car Sizes:',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Theme.of(context).colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: _getUserCarVehicles().map((vehicle) {
-                                      final dimensions = vehicle['dimensions']?.toString() ?? 'Unknown';
-                                      final vehicleNumber = vehicle['number']?.toString() ?? '';
-                                      final isSelected = _selectedVehicleFilter == vehicleNumber;
-
-                                      return Padding(
-                                        padding: const EdgeInsets.only(right: 8),
-                                        child: FilterChip(
-                                          label: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                vehicleNumber.toUpperCase(),
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: isSelected ? Colors.white : Colors.grey[700],
-                                                ),
-                                              ),
-                                              Text(
-                                                dimensions,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: isSelected ? Colors.white70 : Colors.grey[600],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          selected: isSelected,
-                                          onSelected: (selected) {
-                                            // setState(() {
-                                            //   _selectedVehicleFilter = selected ? vehicleNumber : null;
-                                            // });
-                                          },
-                                          backgroundColor: Colors.blue[50],
-                                          selectedColor: Colors.blue[600],
-                                          checkmarkColor: Colors.white,
-                                          side: BorderSide(
-                                            color: isSelected ? Colors.blue[600]! : Colors.blue[300]!,
-                                            width: 1.5,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Divider(color: Colors.grey[300], height: 1),
-                              ],
-                            ),
-                          ),
-
-                        // Original FutureBuilder for slots
-                        Expanded(
-                          child: FutureBuilder<List<Map<String, dynamic>>>(
-                            future: _backend.getAvailableSlotsWithUserDetails(
-                              date: date,
-                              vehicleTypeFilter: userVehicleType,
-                            ),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState == ConnectionState.waiting) {
-                                return _buildLoadingState();
-                              }
-
-                              if (snapshot.hasError) {
-                                return _buildErrorState(snapshot.error.toString());
-                              }
-
-                              final availableSlots = snapshot.data ?? [];
-
-                              if (availableSlots.isEmpty) {
-                                return _buildEmptyState(date);
-                              }
-
-                              return _buildAvailableSlotsList(availableSlots, scrollController, date);
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return _AvailableSlotsBottomSheetContent(
+              date: date,
+              scrollController: scrollController,
+              backend: _backend,
+              getUserCarVehicles: _getUserCarVehicles,
+              userSlotFuture: _userSlotFuture,
+              // âœ… NEW: Pass actual methods as callbacks
+              onBookAvailableSlot: _bookAvailableSlot,
+              onShowMyBookedSlotDetails: _showMyBookedSlotDetails,
+              onRefreshData: refreshData,
+            );
+          },
+        );
+      },
     );
   }
+
+
+
 
   List<Map<String, dynamic>> _getUserCarVehicles() {
     return _userVehicles.where((vehicle) =>
@@ -2564,7 +2483,7 @@ class _BookingCardsState extends State<BookingCards> {
       itemCount: availableSlots.length,
       itemBuilder: (context, index) {
         final slot = availableSlots[index];
-        return _buildAvailableSlotCard(slot, date); // ✅ Pass date parameter
+        return _buildAvailableSlotCard(slot, date); // âœ… Pass date parameter
       },
     );
   }
@@ -2579,7 +2498,7 @@ class _BookingCardsState extends State<BookingCards> {
     final slotData = slot['slotData'] as Map<String, dynamic>?;
     final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
 
-    // ✅ NEW: Check availability status
+    // âœ… NEW: Check availability status
     final isFullyAvailable = slot['isFullyAvailable'] as bool? ?? false;
 
     return Container(
@@ -2638,7 +2557,7 @@ class _BookingCardsState extends State<BookingCards> {
                       ),
                     ),
                     Text(
-                      '$vehicleType • ${slotData?['slotPriority'] ?? 'permanent'}',
+                      '$vehicleType â€¢ ${slotData?['slotPriority'] ?? 'permanent'}',
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -2647,7 +2566,7 @@ class _BookingCardsState extends State<BookingCards> {
                   ],
                 ),
               ),
-              // ✅ UPDATED: Availability status badge
+              // âœ… UPDATED: Availability status badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
@@ -2683,7 +2602,7 @@ class _BookingCardsState extends State<BookingCards> {
 
           const SizedBox(height: 12),
 
-          // ✅ UPDATED: Availability info with better messaging
+          // âœ… UPDATED: Availability info with better messaging
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -2728,7 +2647,7 @@ class _BookingCardsState extends State<BookingCards> {
             ),
             childrenPadding: const EdgeInsets.only(top: 8),
             children: [
-              // ✅ NEW: Show all users with their status
+              // âœ… NEW: Show all users with their status
               ...allotedUsers.map((user) {
                 final userEmail = user['email'] as String;
                 final userName = user['name'] as String? ?? _getUserNameFromEmail(userEmail, allotedUsers);
@@ -2802,9 +2721,9 @@ class _BookingCardsState extends State<BookingCards> {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: isFullyAvailable ? () async {
-                // ✅ UPDATED: Implement booking logic for fully available slots
+                // âœ… UPDATED: Implement booking logic for fully available slots
                 Navigator.pop(context); // Close the bottom sheet
-                await _bookAvailableSlot(slot, date); // ✅ Pass the date parameter
+                await _bookAvailableSlot(slot, date); // âœ… Pass the date parameter
               } : null,
               icon: Icon(
                 Icons.event_available,
@@ -2875,7 +2794,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // ✅ IMMEDIATE: Update cache with alternative booking data
+        // âœ… IMMEDIATE: Update cache with alternative booking data
         await _updateWeeklyCacheForDate(
           date,
           isBooked: true,
@@ -2885,7 +2804,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // ✅ REFRESH: Complete data reload
+        // âœ… REFRESH: Complete data reload
         await refreshData();
       } else {
         final message = result['message'] as String;
@@ -2901,7 +2820,7 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 
- Future<void> _showAlreadyBookedDialog(String message, DateTime date) async {
+  Future<void> _showAlreadyBookedDialog(String message, DateTime date) async {
     // Parse the message: "already_booked_other:slotId:userName"
     final parts = message.split(':');
     final bookedSlotId = parts.length > 1 ? parts[1] : 'Unknown';
@@ -3043,29 +2962,50 @@ class _BookingCardsState extends State<BookingCards> {
         date: date,
       );
 
-      // Close loading dialog
-      Navigator.pop(context);
-
       if (bookedSlotDetails != null) {
-        _showBookedSlotDetailsDialog(bookedSlotDetails, date);
+        // Close loading dialog BEFORE showing new dialog
+        Navigator.pop(context);
+
+        // Fetch slot document to get remarks (if any)
+        final slotId = bookedSlotDetails['slotId'] as String;
+        final slotDoc = await FirebaseFirestore.instance
+            .collection('Slots') // <-- Change collection name if needed
+            .doc(slotId)
+            .get();
+        final slotRemarks = slotDoc.data()?['remarks'] as String?;
+
+        _showBookedSlotDetailsDialog(bookedSlotDetails, slotRemarks, date);
+
       } else {
+        Navigator.pop(context);
         _backend.showSnackBar(context, 'No booking found for this date', isError: true);
       }
     } catch (e) {
-      // Close loading dialog
       Navigator.pop(context);
       _backend.showSnackBar(context, 'Error loading booking details: $e', isError: true);
     }
   }
 
 
-  void _showBookedSlotDetailsDialog(Map<String, dynamic> slotDetails, DateTime date) {
-    final slotId = slotDetails['slotId'] as String;
-    final bookingData = slotDetails['bookingData'] as Map<String, dynamic>;
+
+
+  void _showBookedSlotDetailsDialog(
+      Map<String, dynamic> bookedSlotDetails,
+      String? slotRemarks,
+      DateTime date,
+      ) {
+
+
+    final slotId = bookedSlotDetails['slotId'] as String;
+    final bookingData = bookedSlotDetails['bookingData'] as Map<String, dynamic>;
+
+
     final userName = bookingData['userName'] as String? ?? 'Unknown';
     final vehicleType = bookingData['vehicleType'] as String? ?? 'Unknown';
     final bookingType = bookingData['bookingType'] as String? ?? 'regular';
     final bookedAt = bookingData['bookedAt'];
+
+
 
     String bookingTimeStr = 'Unknown';
     if (bookedAt != null && bookedAt is Timestamp) {
@@ -3083,9 +3023,8 @@ class _BookingCardsState extends State<BookingCards> {
                 color: Colors.green[100],
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.local_parking, color: Colors.green[600]),
             ),
-            const SizedBox(width: 12),
+
             const Text('Your Booking Details'),
           ],
         ),
@@ -3133,41 +3072,17 @@ class _BookingCardsState extends State<BookingCards> {
             ),
             const SizedBox(height: 16),
 
-            // Booking Details
-            _buildDetailRow('Booked By', userName, Icons.person),
-            const SizedBox(height: 12),
-            _buildDetailRow('Vehicle Type', vehicleType.toUpperCase(), _getVehicleIcon(vehicleType)),
-            const SizedBox(height: 12),
+
             _buildDetailRow('Booking Type', bookingType == 'alternative' ? 'Alternative Slot' : 'Regular Slot',
                 bookingType == 'alternative' ? Icons.swap_horiz : Icons.event_available),
-            const SizedBox(height: 12),
-            _buildDetailRow('Booked At', bookingTimeStr, Icons.access_time),
 
-            if (bookingType == 'alternative') ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 16, color: Colors.blue[600]),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'This is an alternative slot booking. The original slot owners declared unavailability.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            if (slotRemarks?.isNotEmpty ?? false) ...[
+              const SizedBox(height: 12),
+              _buildDetailRow('Slot Remarks', slotRemarks!, Icons.note),
             ],
+
+
+
           ],
         ),
         actions: [
@@ -3391,7 +3306,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (user != null && userSlot != null) {
         final slotId = userSlot['slotId'] as String;
 
-        // ✅ Use your backend method to get booking status
+        // âœ… Use your backend method to get booking status
         final result = await _backend.getBookingStatusForDate(
           slotId: slotId,
           userEmail: user.email!,
@@ -3444,7 +3359,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // ✅ IMMEDIATE: Clear weekly cache completely for this date
+        // âœ… IMMEDIATE: Clear weekly cache completely for this date
         await _updateWeeklyCacheForDate(
           date,
           isBooked: false,
@@ -3454,7 +3369,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // ✅ REFRESH: Reload actual status to check if assigned slot is booked by others
+        // âœ… REFRESH: Reload actual status to check if assigned slot is booked by others
         await _loadSingleDateSlotStatus(date);
         _loadBookingStatusForDate(date);
       } else {
@@ -3632,107 +3547,6 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-  Widget _buildSlotDashboard(Map<String, dynamic> slotData) {
-    final slotId = slotData['slotId'] as String;
-    final data = slotData['slotData'] as Map<String, dynamic>;
-    final userInfo = slotData['userInfo'] as Map<String, dynamic>;
-
-    final vehicleType = data['vehicleType'] as String? ?? 'UNKNOWN';
-    final slotPriority = data['slotPriority'] as String? ?? 'unknown';
-    final vehicleCompatibility = data['VehicleCompatibility'] as String?;
-    final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSlotInfoCard(
-              slotId, vehicleType, slotPriority, vehicleCompatibility),
-          const SizedBox(height: 16),
-          _buildCombinedWeeklyParkingCard(),
-
-          // const SizedBox(height: 16),
-          // _buildrulesCard(),
-
-          const SizedBox(height: 16),
-          _buildSlotUsersCard(allotedTo),
-          const SizedBox(height: 16),
-          _buildVehicleInfoCard(vehicleType),
-          const SizedBox(height: 16),
-
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSlotInfoCard(String slotId, String vehicleType,
-      String slotPriority, String? vehicleCompatibility) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).cardTheme.shadowColor ??
-                (Theme.of(context).brightness == Brightness.dark
-                    ? Colors.black.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.1)),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _getVehicleColor(vehicleType).withOpacity(
-                      Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.1
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  _getVehicleIcon(vehicleType),
-                  color: _getVehicleColor(vehicleType),
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Your Assigned Slot',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      slotId.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 
   // Widget _buildrulesCard() {
   //   final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -3800,7 +3614,7 @@ class _BookingCardsState extends State<BookingCards> {
   //               ),
   //               const SizedBox(height: 8),
   //               Text(
-  //                 "• Eat 5 star Do Nothing 😎 \n",
+  //                 "â€¢ Eat 5 star Do Nothing ðŸ˜Ž \n",
   //
   //                 style: TextStyle(
   //                   fontSize: 13,
@@ -3885,7 +3699,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // ✅ IMMEDIATE: Update weekly cache with complete data
+        // âœ… IMMEDIATE: Update weekly cache with complete data
         await _updateWeeklyCacheForDate(
           date,
           isBooked: true,
@@ -3895,7 +3709,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // ✅ REFRESH: Update other data sources
+        // âœ… REFRESH: Update other data sources
         if (isToday) {
           await _refreshTodayOnly();
         } else {
@@ -3969,98 +3783,76 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-
-
   Future<Map<String, dynamic>?> fetchUserSlot() async {
-    // Return cached if available and recent
-    if (_cachedUserSlot != null) {
-      return _cachedUserSlot;
-    }
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('No user logged in');
-
     try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('Users')
-          .doc(user.uid)
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+
+      final userEmail = user.email!;
+
+      // Get user's assigned slot using the backend instance
+      final userSlot = await _backend.getUserAssignedSlot(userEmail);
+      if (userSlot == null) return null;
+
+      final slotId = userSlot['slotId'] as String;
+      final slotData = userSlot['slotData'] as Map<String, dynamic>;
+
+      // Extract dimension from slot data
+      final dimension = slotData['dimension'] as String?;
+
+      // Get additional dimension details if needed
+      String? dimensionDetails;
+      if (dimension != null) {
+        dimensionDetails = await _getDimensionDetails(dimension);
+      }
+
+      return {
+        'slotId': slotId,
+        'slotData': slotData,
+        'dimension': dimension,
+        'dimensionDetails': dimensionDetails,
+        'userInfo': {
+          'email': userEmail,
+          'name': user.displayName ?? _backend.getDisplayNameFromEmail(userEmail),
+        },
+      };
+    } catch (e) {
+      print('Error fetching user slot: $e');
+      return null;
+    }
+  }
+
+
+
+
+// Add this helper method to get dimension details from dimensions collection
+  Future<String?> _getDimensionDetails(String dimensionId) async {
+    try {
+      final doc = await _firestore
+          .collection('dimensions')
+          .doc(dimensionId)
           .get();
 
-      if (userDoc.exists && userDoc.data()?['assignedSlotId'] != null) {
-        final userSlotId = userDoc.data()!['assignedSlotId'] as String;
-        final slotDoc = await FirebaseFirestore.instance
-            .collection('Slots')
-            .doc(userSlotId)
-            .get();
-
-        if (slotDoc.exists) {
-          final slotData = slotDoc.data()!;
-          final allotedTo = slotData['alloted_to'] as List<dynamic>? ?? [];
-
-          Map<String, dynamic>? userInfo;
-          for (var userData in allotedTo) {
-            if (userData['email'] == user.email) {
-              userInfo = userData;
-              break;
-            }
-          }
-
-          if (userInfo != null) {
-            // CACHE the result
-            _cachedUserSlot = {
-              'slotId': userSlotId,
-              'slotData': slotData,
-              'userInfo': userInfo,
-            };
-            return _cachedUserSlot;
-          }
-        }
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Return dimension description or any relevant info
+        return data['description'] as String? ?? data['name'] as String?;
       }
+      return null;
     } catch (e) {
-      print('Error in optimized slot fetch: $e');
+      print('Error fetching dimension details: $e');
+      return null;
     }
-
-    print('WARNING: Using expensive fallback - consider fixing Users collection');
-    return await fetchUserSlotPrev();
   }
 
 
-  Future<Map<String, dynamic>?> fetchUserSlotPrev() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('No user logged in');
-
-    final userEmail = user.email!;
-
-    // Query Slots collection to find slot where user email exists in alloted_to array
-    final slotsSnapshot = await FirebaseFirestore.instance
-        .collection('Slots')
-        .get();
-
-    for (var doc in slotsSnapshot.docs) {
-      final data = doc.data();
-      final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
-
-      // Check if user email exists in alloted_to array
-      for (var user in allotedTo) {
-        if (user['email'] == userEmail) {
-          return {
-            'slotId': doc.id,
-            'slotData': data,
-            'userInfo': user,
-          };
-        }
-      }
-    }
-
-    return null; // User not found in any slot
-  }
 
 
   Future<void> _loadBookings() async {
     if (!mounted) return;
 
     setState(() {
-      // ✅ For initial loading of both, you can use either variable or create a separate one
+      // âœ… For initial loading of both, you can use either variable or create a separate one
       _isLoadingTodayBooking = true;
 
     });
@@ -4164,7 +3956,7 @@ class _BookingCardsState extends State<BookingCards> {
         final workingDays = _getNextWorkingDays(5);
         final Map<DateTime, Map<String, dynamic>> weeklyData = {};
 
-        // ✅ FIX: Check both user's bookings AND assigned slot status
+        // âœ… FIX: Check both user's bookings AND assigned slot status
         final futures = workingDays.map((date) async {
           // Check if user has booked any slot
           final userBooking = await _backend.getUserBookedSlotForDate(
@@ -4172,7 +3964,7 @@ class _BookingCardsState extends State<BookingCards> {
             date: date,
           );
 
-          // ✅ NEW: Also check if user's assigned slot is booked by others
+          // âœ… NEW: Also check if user's assigned slot is booked by others
           final assignedSlotStatus = await _backend.getBookingStatusForDate(
             slotId: assignedSlotId,
             userEmail: userEmail,
@@ -5093,6 +4885,742 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 }
+class _AvailableSlotsBottomSheetContent extends StatefulWidget {
+  final DateTime date;
+  final ScrollController scrollController;
+  final BookingBackend backend;
+  final List<Map<String, dynamic>> Function() getUserCarVehicles;
+  final Future<Map<String, dynamic>?> userSlotFuture;
+  // âœ… NEW: Add callback functions
+  final Future<void> Function(Map<String, dynamic>, DateTime) onBookAvailableSlot;
+  final Future<void> Function(DateTime) onShowMyBookedSlotDetails;
+  final Future<void> Function() onRefreshData;
+
+  const _AvailableSlotsBottomSheetContent({
+    required this.date,
+    required this.scrollController,
+    required this.backend,
+    required this.getUserCarVehicles,
+    required this.userSlotFuture,
+    required this.onBookAvailableSlot, // âœ… NEW
+    required this.onShowMyBookedSlotDetails, // âœ… NEW
+    required this.onRefreshData, // âœ… NEW
+  });
+
+  @override
+  _AvailableSlotsBottomSheetContentState createState() =>
+      _AvailableSlotsBottomSheetContentState();
+}
+
+class _AvailableSlotsBottomSheetContentState
+    extends State<_AvailableSlotsBottomSheetContent> {
+  String? _selectedVehicleFilter;
+  String? _selectedDimensionFilter;
+  Future<List<Map<String, dynamic>>>? _availableSlotsFuture;
+  bool _isInitialized = false;
+
+  void _fetchSlots(String userVehicleType) {
+    _availableSlotsFuture = widget.backend.getAvailableSlotsWithUserDetails(
+      date: widget.date,
+      vehicleTypeFilter: userVehicleType,
+      dimensionFilter: _selectedDimensionFilter,
+    );
+  }
+
+  void _updateFiltersAndFetch(String userVehicleType, {String? vehicleFilter, String? dimensionFilter}) {
+    setState(() {
+      _selectedVehicleFilter = vehicleFilter;
+      _selectedDimensionFilter = dimensionFilter;
+      _fetchSlots(userVehicleType);
+    });
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            strokeWidth: 3,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Finding available slots...',
+            style: TextStyle(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.red[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading slots',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.red[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please try again later',
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(DateTime date) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.event_busy,
+              size: 64,
+              color: Colors.orange[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Available Slots',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'All slots are currently occupied for this date',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              icon: Icon(Icons.support_agent),
+              label: Text('Contact Admin'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.primary,
+                side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getFormattedDateString(DateTime date) {
+    const dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${dayNames[date.weekday]}, ${monthNames[date.month]} ${date.day}';
+  }
+
+  Widget _buildAvailableSlotsList(List<Map<String, dynamic>> availableSlots, ScrollController scrollController, DateTime date) {
+    return ListView.builder(
+      controller: scrollController,
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+      itemCount: availableSlots.length,
+      itemBuilder: (context, index) {
+        final slot = availableSlots[index];
+        return _buildAvailableSlotCard(slot, date);
+      },
+    );
+  }
+
+  Widget _buildAvailableSlotCard(Map<String, dynamic> slot, DateTime date) {
+    final slotId = slot['slotId'] as String;
+    final vehicleType = slot['vehicleType'] as String;
+    final slotUsers = slot['slotUsers'] as int;
+    final declarationsCount = slot['declarationsCount'] as int;
+    final declarations = List<Map<String, dynamic>>.from(slot['declarations'] ?? []);
+    final slotData = slot['slotData'] as Map<String, dynamic>?;
+    final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
+    final isFullyAvailable = slot['isFullyAvailable'] as bool? ?? false;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey[800]
+            : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isFullyAvailable
+              ? Colors.green.withOpacity(0.3)
+              : Colors.orange.withOpacity(0.3),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.black.withOpacity(0.3)
+                : Colors.grey.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _getVehicleColor(vehicleType).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _getVehicleIcon(vehicleType),
+                  color: _getVehicleColor(vehicleType),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      slotId.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      '$vehicleType â€¢ ${slotData?['slotPriority'] ?? 'permanent'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isFullyAvailable ? Colors.green[100] : Colors.orange[100],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isFullyAvailable ? Colors.green[300]! : Colors.orange[300]!,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isFullyAvailable ? Icons.check_circle : Icons.access_time,
+                      size: 14,
+                      color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isFullyAvailable ? 'Fully Available' : 'Partially Available',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Availability info
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: (isFullyAvailable ? Colors.green : Colors.orange).withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isFullyAvailable ? Icons.verified_outlined : Icons.info_outline,
+                  size: 16,
+                  color: isFullyAvailable ? Colors.green[600] : Colors.orange[600],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isFullyAvailable
+                        ? 'All $slotUsers users marked unavailability'
+                        : '$declarationsCount of $slotUsers users marked unavailability',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isFullyAvailable ? Colors.green[700] : Colors.orange[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Slot users
+          ExpansionTile(
+            title: Text(
+              'Slot Users',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            childrenPadding: const EdgeInsets.only(top: 8),
+            children: [
+              ...allotedUsers.map((user) {
+                final userEmail = user['email'] as String;
+                final userName = user['name'] as String? ?? _getUserNameFromEmail(userEmail);
+
+                final userDeclaration = declarations.firstWhere(
+                      (d) => d['declaredBy'] == userEmail,
+                  orElse: () => <String, dynamic>{},
+                );
+
+                final hasDeclaration = userDeclaration.isNotEmpty;
+                final reason = userDeclaration['reason'] as String?;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: hasDeclaration
+                              ? _getReasonColor(reason ?? 'unavailable')
+                              : Colors.grey[400],
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          userName,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: hasDeclaration
+                              ? _getReasonColor(reason ?? 'unavailable').withOpacity(0.1)
+                              : Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          hasDeclaration
+                              ? _getReasonDisplayText(reason ?? 'unavailable')
+                              : 'Pending',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: hasDeclaration
+                                ? _getReasonColor(reason ?? 'unavailable')
+                                : Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Action button - âœ… NOW USES ACTUAL METHOD
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: isFullyAvailable ? () async {
+                Navigator.pop(context);
+                // âœ… FIXED: Use the actual callback method
+                await widget.onBookAvailableSlot(slot, date);
+              } : null,
+              icon: Icon(
+                Icons.event_available,
+                size: 18,
+                color: isFullyAvailable ? Colors.white : Colors.grey[500],
+              ),
+              label: Text(
+                'Book This Slot',
+                style: TextStyle(
+                  color: isFullyAvailable ? Colors.white : Colors.grey[500],
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isFullyAvailable ? Colors.green[600] : Colors.grey[300],
+                foregroundColor: isFullyAvailable ? Colors.white : Colors.grey[500],
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: isFullyAvailable ? 2 : 0,
+                disabledBackgroundColor: Colors.grey[300],
+                disabledForegroundColor: Colors.grey[500],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper methods
+  IconData _getVehicleIcon(String vehicleType) {
+    switch (vehicleType.toUpperCase()) {
+      case 'CAR':
+        return Icons.directions_car_rounded;
+      case 'BIKE':
+        return Icons.two_wheeler_rounded;
+      default:
+        return Icons.local_parking_rounded;
+    }
+  }
+
+  Color _getVehicleColor(String vehicleType) {
+    switch (vehicleType.toUpperCase()) {
+      case 'CAR':
+        return Colors.blue[600]!;
+      case 'BIKE':
+        return Colors.orange[600]!;
+      default:
+        return Colors.grey[600]!;
+    }
+  }
+
+  String _getUserNameFromEmail(String email) {
+    final usernamePart = email.split('@').first;
+    final words = usernamePart.split('.').map((w) {
+      if (w.isEmpty) return '';
+      return w[0].toUpperCase() + w.substring(1);
+    }).toList();
+    return words.join(' ');
+  }
+
+  Color _getReasonColor(String reason) {
+    switch (reason.toLowerCase()) {
+      case 'wfh':
+        return Colors.blue[600]!;
+      case 'leave':
+        return Colors.orange[600]!;
+      default:
+        return Colors.grey[600]!;
+    }
+  }
+
+  String _getReasonDisplayText(String reason) {
+    switch (reason.toLowerCase()) {
+      case 'wfh':
+        return 'WFH';
+      case 'leave':
+        return 'Leave';
+      default:
+        return reason.toUpperCase();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Handle bar
+          Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[400],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.local_parking,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Available Slots',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        _getFormattedDateString(widget.date),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Icon(
+                    Icons.close,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Content
+          Expanded(
+            child: FutureBuilder<Map<String, dynamic>?>(
+              future: widget.userSlotFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return _buildLoadingState();
+                }
+
+                if (snapshot.hasError || snapshot.data == null) {
+                  return _buildErrorState('Unable to get user vehicle type');
+                }
+
+                final userSlotData = snapshot.data!['slotData'] as Map<String, dynamic>? ?? {};
+                final userVehicleType = (userSlotData['vehicleType'] as String?)?.toUpperCase() ?? 'BIKE';
+
+                if (!_isInitialized) {
+                  _isInitialized = true;
+                  _selectedVehicleFilter = null;
+                  _selectedDimensionFilter = null;
+                  _fetchSlots(userVehicleType);
+                }
+
+                final userVehicles = widget.getUserCarVehicles();
+
+                return Column(
+                  children: [
+                    if (userVehicleType == 'CAR')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.directions_car_rounded,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Your Car Sizes:',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  // All chip
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: FilterChip(
+                                      label: const Text('All', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      selected: _selectedDimensionFilter == null,
+                                      onSelected: (selected) {
+                                        _updateFiltersAndFetch(userVehicleType, vehicleFilter: null, dimensionFilter: null);
+                                      },
+                                      backgroundColor: Colors.blue[50],
+                                      selectedColor: Colors.blue[600],
+                                      checkmarkColor: Colors.white,
+                                      side: BorderSide(
+                                        color: (_selectedDimensionFilter == null) ? Colors.blue[600]! : Colors.blue[300]!,
+                                        width: 1.5,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    ),
+                                  ),
+
+                                  ...userVehicles.map((vehicle) {
+                                    final dimensions = vehicle['dimensions']?.toString() ?? 'Unknown';
+                                    final vehicleNumber = vehicle['number']?.toString() ?? '';
+                                    final isSelected = _selectedVehicleFilter == vehicleNumber;
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: FilterChip(
+                                        label: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              vehicleNumber.toUpperCase(),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: isSelected ? Colors.white : Colors.grey[700],
+                                              ),
+                                            ),
+                                            Text(
+                                              dimensions,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: isSelected ? Colors.white70 : Colors.grey[600],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        selected: isSelected,
+                                        onSelected: (selected) {
+                                          if (selected) {
+                                            _updateFiltersAndFetch(
+                                              userVehicleType,
+                                              vehicleFilter: vehicleNumber,
+                                              dimensionFilter: vehicle['dimensions'],
+                                            );
+                                          } else {
+                                            _updateFiltersAndFetch(userVehicleType, vehicleFilter: null, dimensionFilter: null);
+                                          }
+                                        },
+                                        backgroundColor: Colors.blue[50],
+                                        selectedColor: Colors.blue[600],
+                                        checkmarkColor: Colors.white,
+                                        side: BorderSide(
+                                          color: isSelected ? Colors.blue[600]! : Colors.blue[300]!,
+                                          width: 1.5,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Divider(color: Colors.grey[300], height: 1),
+                          ],
+                        ),
+                      ),
+
+                    Expanded(
+                      child: FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _availableSlotsFuture,
+                        builder: (context, slotSnapshot) {
+                          if (slotSnapshot.connectionState == ConnectionState.waiting) {
+                            return _buildLoadingState();
+                          }
+                          if (slotSnapshot.hasError) {
+                            return _buildErrorState(slotSnapshot.error.toString());
+                          }
+                          final availableSlots = slotSnapshot.data ?? [];
+                          if (availableSlots.isEmpty) {
+                            return _buildEmptyState(widget.date);
+                          }
+                          return _buildAvailableSlotsList(availableSlots, widget.scrollController, widget.date);
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 
 
@@ -5115,7 +5643,7 @@ class CarDimension {
     if (data.containsKey('width') && data.containsKey('height')) {
       final width = data['width']?.toString() ?? '';
       final height = data['height']?.toString() ?? '';
-      displayName = '${width}m × ${height}m';
+      displayName = '${width}m Ã— ${height}m';
     }
 
     return CarDimension(

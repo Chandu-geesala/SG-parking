@@ -104,9 +104,6 @@ class _MysplashScreenState extends State<MysplashScreen> {
 
       print('🏷️ User type: $userType, isAdmin: $isAdmin');
 
-      // Update last login
-      _authService.updateLastLogin(user.email!);
-
       // Navigate based on user type
       if (isAdmin) {
         print('🛡️ Admin user, navigating to AdminHomeScreen');
