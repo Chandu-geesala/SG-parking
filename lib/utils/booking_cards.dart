@@ -37,6 +37,16 @@ class _BookingCardsState extends State<BookingCards> {
   bool _dimensionsLoaded = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  String _monthName(int month) {
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    if (month < 1 || month > 12) return '';
+    return monthNames[month - 1];
+  }
+
+
 
   Future<Map<String, dynamic>?> _userSlotFuture = Future.value(null);
 
@@ -45,11 +55,15 @@ class _BookingCardsState extends State<BookingCards> {
 
   List<Map<String, dynamic>> _userVehicles = [];
   bool _isLoadingVehicles = false;
+  bool _userReachedMonthlyLimit = false;
+
 
   Future<List<Map<String, dynamic>>>? _availableSlotsFuture; // For slots fetching
 
 
   String? _selectedDimensionFilter;
+
+
 
 
   Map<DateTime, Map<String, dynamic>> _weeklySlotData = {};
@@ -100,6 +114,69 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
+  Future<void> _checkUserBookingLimit([int? slotUsersCount]) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() {
+        _userReachedMonthlyLimit = false;
+      });
+      return;
+    }
+
+    final now = DateTime.now();
+    final currentMonthName = _monthName(now.month);
+
+    final doc = await _firestore.collection('limit').doc('config').get();
+    if (!doc.exists) {
+      setState(() {
+        _userReachedMonthlyLimit = false;
+      });
+      return;
+    }
+
+    final data = doc.data();
+    if (data == null) {
+      setState(() {
+        _userReachedMonthlyLimit = false;
+      });
+      return;
+    }
+
+    final toggleOn = data['toggleOn'] as bool? ?? false;
+    if (!toggleOn) {
+      setState(() {
+        _userReachedMonthlyLimit = false;
+      });
+      return;
+    }
+
+    final monthCounts = data['monthCounts'] as Map<String, dynamic>? ?? {};
+    final limitCount = monthCounts[currentMonthName] as int? ?? 0;
+
+    final userDoc = await _firestore.collection('users').doc(user.email).get();
+    if (!userDoc.exists) {
+      setState(() {
+        _userReachedMonthlyLimit = false;
+      });
+      return;
+    }
+
+    final userData = userDoc.data()!;
+    final bookingField = 'bookingsIn$currentMonthName';
+    final userBookedCount = userData[bookingField] as int? ?? 0;
+
+    // ✅ Use provided slotUsersCount or default to 1
+    final actualSlotUsersCount = slotUsersCount ?? 1;
+    final perUserLimit = (limitCount / actualSlotUsersCount).ceil();
+
+    setState(() {
+      _userReachedMonthlyLimit = userBookedCount >= perUserLimit;
+    });
+  }
+
+
+
+
 
   // Booking state variables
   Map<String, dynamic>? _todaysBooking;
@@ -134,6 +211,7 @@ class _BookingCardsState extends State<BookingCards> {
   @override
   void initState() {
     super.initState();
+
 
     _loadUserVehicles();
 
@@ -259,7 +337,8 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
-  Widget _buildCombinedWeeklyParkingCard() {
+  Widget _buildCombinedWeeklyParkingCard(List<dynamic> allotedTo)
+ {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -297,7 +376,7 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Let us know when you won\'t need parking ',
+                  'Let us know when you don’t need parking—just tap below! ',
                   style: TextStyle(
                     fontSize: 16,
 
@@ -310,6 +389,11 @@ class _BookingCardsState extends State<BookingCards> {
             ],
 
           ),
+          const SizedBox(height: 20),
+// spacing
+          BookingLimitStatus(slotUsersCount: allotedTo.length),
+
+
           const SizedBox(height: 20),
 
           // Weekly Calendar with combined functionality
@@ -333,15 +417,18 @@ class _BookingCardsState extends State<BookingCards> {
             : Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
         children: [
           _buildLegendItem(Icons.add_circle_outline, 'Available', Colors.blue[600]!),
           _buildLegendItem(Icons.check_circle, 'Booked', Colors.green[600]!),
-          _buildLegendItem(Icons.block, 'Unavailable', Colors.red[600]!),
+
           _buildLegendItem(Icons.beach_access, 'Leave/WFH', Colors.orange[600]!),
+          _buildLegendItem(Icons.block, 'Unavailable/Book Availale slots', Colors.red[600]!),
         ],
       ),
+
     );
   }
 
@@ -373,7 +460,8 @@ class _BookingCardsState extends State<BookingCards> {
                 hasUserDeclaration,
                 isSlotBooked,
                 isBookedByCurrentUser,
-                isPast
+                isPast,
+                date,
             ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
@@ -500,13 +588,16 @@ class _BookingCardsState extends State<BookingCards> {
     final isBookedByCurrentUser = slotData?['isBookedByCurrentUser'] == true;
     final bookedSlotId = slotData?['bookedSlotId'] as String?;
     final bookingType = slotData?['bookingType'] as String? ?? 'regular';
-
-    // âœ… NEW: Check if assigned slot is booked by others
+    final bookedByEmail = slotData?['bookedBy'] as String? ?? 'Unknown';
     final assignedSlotBookedByOther = slotData?['assignedSlotBookedByOther'] == true;
 
-    // âœ… FIX: Determine slot availability status for UI logic
-    final isSlotAvailable = !isSlotBooked; // Blue state - slot is available
-    final isSlotUnavailable = assignedSlotBookedByOther; // Red state - slot booked by others
+    // ✅ NEW: Check if user reached monthly limit
+    bool isCurrentMonth = date.month == DateTime.now().month && date.year == DateTime.now().year;
+    bool isLimitReached = _userReachedMonthlyLimit && isCurrentMonth;
+
+    // ✅ UPDATED: Include limit reached in availability logic
+    final isSlotAvailable = !isSlotBooked && !isLimitReached;
+    final isSlotUnavailable = assignedSlotBookedByOther || isLimitReached;
 
     showModalBottomSheet(
       context: context,
@@ -544,7 +635,7 @@ class _BookingCardsState extends State<BookingCards> {
                         ),
                       ),
                       Text(
-                        _getCombinedHeaderSubtitle(hasUserDeclaration, isSlotBooked, isBookedByCurrentUser, bookedSlotId, bookingType, assignedSlotBookedByOther),
+                        _getCombinedHeaderSubtitle(hasUserDeclaration, isSlotBooked, isBookedByCurrentUser, bookedSlotId, bookingType, assignedSlotBookedByOther, isLimitReached),
                         style: TextStyle(
                           fontSize: 14,
                           color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -575,27 +666,25 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(height: 12),
               _buildViewBookingDetailsOption(date),
             ] else if (isSlotUnavailable) ...[
-              //  User's assigned slot is booked by others (RED state)
-              // Only show "See Available Slots" - no leave/WFH options
-              _buildSlotBookedByOthersCard(date),
-              const SizedBox(height: 16),
-              _buildSeeAvailableSlotsOption(date),
+              // ✅ UPDATED: Handle both cases - slot booked by others OR limit reached
+              if (isLimitReached) ...[
+                // Show limit reached card
+                _buildLimitReachedCard(date),
+                const SizedBox(height: 16),
+                // ✅ NEW: Only show "See Available Slots" option, no leave/WFH
+                _buildSeeAvailableSlotsOption(date),
+              ] else ...[
+                // Slot booked by others
+                _buildSlotBookedByOthersCard(date, bookedByEmail: bookedByEmail),
+                const SizedBox(height: 16),
+                _buildSeeAvailableSlotsOption(date),
+              ],
             ] else if (isSlotAvailable) ...[
-              // âœ… FIXED: Slot is available (BLUE state)
-              // Show book slot and leave/WFH options - no "See Available Slots"
+              // Slot is available and limit not reached
               _buildBookSlotOption(date),
               const SizedBox(height: 12),
               _buildPreferenceOption(date, 'leave', 'On Leave', 'I will be on leave this day', Icons.beach_access, Colors.orange),
               const SizedBox(height: 12),
-              _buildPreferenceOption(date, 'wfh', 'Work From Home', 'I will be working from home', Icons.home_work, Colors.blue),
-            ] else ...[
-              // âœ… FALLBACK: Default case for any other state
-              _buildBookSlotOption(date),
-              const SizedBox(height: 12),
-              _buildSeeAvailableSlotsOption(date),
-              const SizedBox(height: 12),
-              _buildPreferenceOption(date, 'leave', 'On Leave', 'I will be on leave this day', Icons.beach_access, Colors.orange),
-              const SizedBox(width: 12),
               _buildPreferenceOption(date, 'wfh', 'Work From Home', 'I will be working from home', Icons.home_work, Colors.blue),
             ],
 
@@ -608,8 +697,7 @@ class _BookingCardsState extends State<BookingCards> {
 
 
 
-// âœ… UPDATED: Header subtitle method with unavailable status
-  String _getCombinedHeaderSubtitle(bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, String? bookedSlotId, String bookingType, bool assignedSlotBookedByOther) {
+  String _getCombinedHeaderSubtitle(bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, String? bookedSlotId, String bookingType, bool assignedSlotBookedByOther, bool isLimitReached) {
     if (hasDeclaration) return 'You have marked unavailability';
     if (isBookedByUser) {
       if (bookingType == 'alternative') {
@@ -618,11 +706,65 @@ class _BookingCardsState extends State<BookingCards> {
         return 'You have booked slot ${bookedSlotId?.toUpperCase() ?? ''}';
       }
     }
+    // ✅ NEW: Handle limit reached case
+    if (isLimitReached) {
+      return 'Monthly booking limit reached';
+    }
     if (assignedSlotBookedByOther) {
       return 'Your assigned slot is booked by another user';
     }
     return 'Available - Choose an option';
   }
+
+
+  Widget _buildLimitReachedCard(DateTime date) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red[300]!, width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red[100],
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.block, color: Colors.red[600], size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Monthly Limit Reached',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.red[700],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'You have reached your booking limit for this month',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.red[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
 // âœ… NEW: Method for any slot booking card
   Widget _buildUserBookedAnySlotCard(DateTime date, String? slotId, String bookingType) {
@@ -1111,7 +1253,7 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
-  Widget _buildSlotBookedByOthersCard(DateTime date) {
+  Widget _buildSlotBookedByOthersCard(DateTime date, {required String bookedByEmail}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1142,7 +1284,15 @@ class _BookingCardsState extends State<BookingCards> {
                     color: Colors.red[700],
                   ),
                 ),
-
+                const SizedBox(height: 6),
+                Text(
+                  'Booked by: $bookedByEmail',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.red[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1150,6 +1300,8 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
+
+
 
   Widget _buildCurrentDeclarationCard(DateTime date) {
     final preference = _datePreferences[date];
@@ -1581,6 +1733,9 @@ class _BookingCardsState extends State<BookingCards> {
     final vehicleCompatibility = data['VehicleCompatibility'] as String?;
     final allotedTo = data['alloted_to'] as List<dynamic>? ?? [];
 
+    _checkUserBookingLimit(allotedTo.length);
+
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1588,7 +1743,8 @@ class _BookingCardsState extends State<BookingCards> {
           _buildSlotInfoCard(
               slotId, vehicleType, slotPriority, vehicleCompatibility),
           const SizedBox(height: 16),
-          _buildCombinedWeeklyParkingCard(),
+          _buildCombinedWeeklyParkingCard(allotedTo),
+
 
           // const SizedBox(height: 16),
           // _buildrulesCard(),
@@ -1685,8 +1841,15 @@ class _BookingCardsState extends State<BookingCards> {
     }
   }
 
-  Color _getCombinedDayTileColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast) {
+  Color _getCombinedDayTileColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast, DateTime date) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    bool isCurrentMonth = date.month == DateTime.now().month && date.year == DateTime.now().year;
+
+    if (_userReachedMonthlyLimit && isCurrentMonth && !isSlotBooked && !hasDeclaration && !isPast) {
+      // This forces all available (blue) slots to appear red (unavailable)
+      return isDark ? Colors.red[900]!.withOpacity(0.3) : Colors.red[50]!;
+    }
 
     if (isPast) {
       return isDark ? Colors.grey[800]! : Colors.grey[100]!;
@@ -1698,7 +1861,6 @@ class _BookingCardsState extends State<BookingCards> {
       if (isBookedByUser) {
         return isDark ? Colors.green[900]!.withOpacity(0.3) : Colors.green[50]!;
       } else {
-        // âœ… FIX: Show red for unavailable (booked by others)
         return isDark ? Colors.red[900]!.withOpacity(0.3) : Colors.red[50]!;
       }
     }
@@ -1707,6 +1869,9 @@ class _BookingCardsState extends State<BookingCards> {
     }
     return isDark ? Colors.blue[900]!.withOpacity(0.2) : Colors.blue[50]!;
   }
+
+
+
 
   Color _getCombinedDayTileBorderColor(bool isToday, bool hasDeclaration, bool isSlotBooked, bool isBookedByUser, bool isPast) {
     if (isPast) return Colors.grey[400]!;
@@ -1743,12 +1908,21 @@ class _BookingCardsState extends State<BookingCards> {
       if (isBookedByUser) {
         return Icon(Icons.check_circle, size: 16, color: Colors.green[600]);
       } else {
-        // âœ… FIX: Show block icon for unavailable
         return Icon(Icons.block, size: 16, color: Colors.red[600]);
       }
     }
+
+    // ✅ NEW: Check if user reached monthly limit for current month
+    bool isCurrentMonth = date.month == DateTime.now().month && date.year == DateTime.now().year;
+    if (_userReachedMonthlyLimit && isCurrentMonth) {
+      // Show unavailable icon when limit reached
+      return Icon(Icons.block, size: 16, color: Colors.red[600]);
+    }
+
     return Icon(Icons.add_circle_outline, size: 14, color: Colors.blue[600]);
   }
+
+
 
 
 
@@ -2347,6 +2521,7 @@ class _BookingCardsState extends State<BookingCards> {
               onBookAvailableSlot: _bookAvailableSlot,
               onShowMyBookedSlotDetails: _showMyBookedSlotDetails,
               onRefreshData: refreshData,
+              userReachedMonthlyLimit: _userReachedMonthlyLimit,
             );
           },
         );
@@ -3955,26 +4130,27 @@ class _BookingCardsState extends State<BookingCards> {
         final workingDays = _getNextWorkingDays(5);
         final Map<DateTime, Map<String, dynamic>> weeklyData = {};
 
-        // âœ… FIX: Check both user's bookings AND assigned slot status
+        // Check both user's bookings AND assigned slot status
         final futures = workingDays.map((date) async {
-          // Check if user has booked any slot
+          // Check if user has booked any slot for this date
           final userBooking = await _backend.getUserBookedSlotForDate(
             userEmail: userEmail,
             date: date,
           );
 
-          // âœ… NEW: Also check if user's assigned slot is booked by others
+          // Check if assigned slot is booked by others on this date
           final assignedSlotStatus = await _backend.getBookingStatusForDate(
             slotId: assignedSlotId,
             userEmail: userEmail,
             date: date,
           );
 
-          // Determine the final status
+          // Determine the final status and bookedBy email
           bool isBooked = false;
           bool isBookedByCurrentUser = false;
           String? bookedSlotId;
           String bookingType = 'regular';
+          String bookedBy = 'Unknown'; // Default value
 
           if (userBooking != null) {
             // User has booked some slot (either their own or alternative)
@@ -3982,12 +4158,18 @@ class _BookingCardsState extends State<BookingCards> {
             isBookedByCurrentUser = true;
             bookedSlotId = userBooking['slotId'];
             bookingType = userBooking['bookingData']?['bookingType'] ?? 'regular';
+
+            bookedBy = userBooking['bookingData']?['bookedBy'] ??
+                userEmail; // Should be userEmail but fallback
           } else if (assignedSlotStatus['exists'] == true) {
-            // User's assigned slot is booked by someone else
+            // Assigned slot booked by another user
             isBooked = true;
             isBookedByCurrentUser = false;
             bookedSlotId = assignedSlotId;
-            bookingType = 'unavailable'; // Mark as unavailable
+            bookingType = 'unavailable';
+
+            bookedBy = assignedSlotStatus['bookedBy'] ??
+                'Unknown'; // <-- Important: fetch bookedBy from assignedSlotStatus
           }
 
           return MapEntry(date, {
@@ -3996,6 +4178,7 @@ class _BookingCardsState extends State<BookingCards> {
             'bookedSlotId': bookedSlotId,
             'bookingType': bookingType,
             'assignedSlotBookedByOther': assignedSlotStatus['exists'] == true && !isBookedByCurrentUser,
+            'bookedBy': bookedBy, // Add bookedBy here for UI use
           });
         });
 
@@ -4894,6 +5077,7 @@ class _AvailableSlotsBottomSheetContent extends StatefulWidget {
   final Future<void> Function(Map<String, dynamic>, DateTime) onBookAvailableSlot;
   final Future<void> Function(DateTime) onShowMyBookedSlotDetails;
   final Future<void> Function() onRefreshData;
+  final bool userReachedMonthlyLimit;
 
   const _AvailableSlotsBottomSheetContent({
     required this.date,
@@ -4904,6 +5088,7 @@ class _AvailableSlotsBottomSheetContent extends StatefulWidget {
     required this.onBookAvailableSlot, // âœ… NEW
     required this.onShowMyBookedSlotDetails, // âœ… NEW
     required this.onRefreshData, // âœ… NEW
+    required this.userReachedMonthlyLimit,
   });
 
   @override
@@ -4917,14 +5102,21 @@ class _AvailableSlotsBottomSheetContentState
   String? _selectedDimensionFilter;
   Future<List<Map<String, dynamic>>>? _availableSlotsFuture;
   bool _isInitialized = false;
+  final BookingBackend _backend = BookingBackend();
 
-  void _fetchSlots(String userVehicleType) {
-    _availableSlotsFuture = widget.backend.getAvailableSlotsWithUserDetails(
-      date: widget.date,
-      vehicleTypeFilter: userVehicleType,
-      dimensionFilter: _selectedDimensionFilter,
-    );
+  Future<void> _fetchSlots(String userVehicleType) async {
+    // Clear only available slots cache here:
+    await _backend.refreshCache(availableSlots: true);
+
+    setState(() {
+      _availableSlotsFuture = _backend.getAvailableSlotsWithUserDetails(
+        date: widget.date,
+        vehicleTypeFilter: userVehicleType,
+        dimensionFilter: _selectedDimensionFilter,
+      );
+    });
   }
+
 
   void _updateFiltersAndFetch(String userVehicleType, {String? vehicleFilter, String? dimensionFilter}) {
     setState(() {
@@ -5069,6 +5261,12 @@ class _AvailableSlotsBottomSheetContentState
     final slotData = slot['slotData'] as Map<String, dynamic>?;
     final allotedUsers = List<Map<String, dynamic>>.from(slot['allotedUsers'] ?? []);
     final isFullyAvailable = slot['isFullyAvailable'] as bool? ?? false;
+    bool isDateInCurrentMonth = date.month == DateTime.now().month && date.year == DateTime.now().year;
+
+    final isFullyAvailableOriginal = slot['isFullyAvailable'] as bool? ?? false;
+
+    final isFullyAvailableFinal = isFullyAvailableOriginal && !(widget.userReachedMonthlyLimit && isDateInCurrentMonth);
+
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -5479,7 +5677,7 @@ class _AvailableSlotsBottomSheetContentState
                 }
 
                 final userVehicles = widget.getUserCarVehicles();
-
+                final isSelected = _selectedDimensionFilter == null;
                 return Column(
                   children: [
                     if (userVehicleType == 'CAR')
@@ -5512,10 +5710,11 @@ class _AvailableSlotsBottomSheetContentState
                               child: Row(
                                 children: [
                                   // All chip
+
                                   Padding(
                                     padding: const EdgeInsets.only(right: 8),
                                     child: FilterChip(
-                                      label: const Text('All', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      label: Text('All', style: TextStyle(fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey[700])),
                                       selected: _selectedDimensionFilter == null,
                                       onSelected: (selected) {
                                         _updateFiltersAndFetch(userVehicleType, vehicleFilter: null, dimensionFilter: null);
@@ -5650,5 +5849,103 @@ class CarDimension {
       name: displayName,
       data: data,
     );
+  }
+}
+
+
+class BookingLimitStatus extends StatefulWidget {
+  final int slotUsersCount; // Add this parameter to accept slot users count
+
+  const BookingLimitStatus({Key? key, required this.slotUsersCount}) : super(key: key);
+
+  @override
+  State<BookingLimitStatus> createState() => _BookingLimitStatusState();
+}
+
+class _BookingLimitStatusState extends State<BookingLimitStatus> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final User? _user = FirebaseAuth.instance.currentUser;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_user == null) {
+      return const SizedBox.shrink(); // Not logged in, show nothing
+    }
+
+    final now = DateTime.now();
+    final currentMonthName = _monthName(now.month);
+
+    // Stream for limit toggle and limits config document
+    final limitDocStream = _firestore.collection('limit').doc('config').snapshots();
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: limitDocStream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox(
+            height: 20,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+
+        final data = snapshot.data!.data() as Map<String, dynamic>?;
+
+        if (data == null) return const SizedBox.shrink();
+
+        final toggleOn = data['toggleOn'] as bool? ?? false;
+
+        if (!toggleOn) {
+          // Limit toggle OFF; do not show limit info
+          return const SizedBox.shrink();
+        }
+
+        final monthCounts = data['monthCounts'] as Map<String, dynamic>? ?? {};
+        final limitCount = monthCounts[currentMonthName] as int? ?? 0;
+
+        // User doc stream to get booking count in current month
+        final userDocStream = _firestore.collection('users').doc(_user!.email).snapshots();
+
+        return StreamBuilder<DocumentSnapshot>(
+          stream: userDocStream,
+          builder: (context, userSnap) {
+            if (!userSnap.hasData) {
+              return const SizedBox(
+                height: 20,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              );
+            }
+
+            final userData = userSnap.data!.data() as Map<String, dynamic>?;
+
+            if (userData == null) return const SizedBox.shrink();
+
+            final bookingField = 'bookingsIn$currentMonthName';
+            final userBookedCount = userData[bookingField] as int? ?? 0;
+
+            // Calculate per-user limit by dividing total limit by slot users count
+            final slotUsersCount = widget.slotUsersCount > 0 ? widget.slotUsersCount : 1;
+            final perUserLimit = (limitCount / slotUsersCount).ceil();
+
+            return Text(
+                'Slots Booked (${_monthName(now.month)}): $userBookedCount/$perUserLimit',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Colors.blueGrey[700],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Helper method to convert month int to name with capital first letter
+  String _monthName(int month) {
+    const months = [
+      '', // filler for 1-based months
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month];
   }
 }

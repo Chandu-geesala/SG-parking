@@ -61,6 +61,13 @@ class BookingBackend {
   String _formatDateForDocId(DateTime date) =>
       DateFormat('yyyy-MM-dd').format(date);
 
+  String _getCurrentMonthFieldName() {
+    final now = DateTime.now();
+    final monthName = DateFormat('MMMM').format(now);  // e.g. "April"
+    return 'bookingsIn$monthName';                      // e.g. "bookingsInApril"
+  }
+
+
   DateTime get tomorrowDate => DateTime.now().add(const Duration(days: 1));
   DateTime get todayDate => DateTime.now();
 
@@ -149,6 +156,77 @@ class BookingBackend {
       throw e;
     }
   }
+
+  /// ---- Booking Limit ----
+
+  Future<void> _incrementMonthlyBookingCount(String userEmail, DateTime bookingDate) async {
+    final userRef = _firestore.collection('users').doc(userEmail);
+
+    final thisMonth = DateFormat('MMMM').format(bookingDate); // e.g., "July"
+    final nextMonthDate = DateTime(
+      bookingDate.month == 12 ? bookingDate.year + 1 : bookingDate.year,
+      bookingDate.month == 12 ? 1 : bookingDate.month + 1,
+    );
+    final nextMonth = DateFormat('MMMM').format(nextMonthDate);
+    final monthFieldsToKeep = {'bookingsIn$thisMonth', 'bookingsIn$nextMonth'};
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(userRef);
+      if (!snapshot.exists) return;
+      Map<String, dynamic> data = snapshot.data() ?? {};
+
+      // Remove all old bookingsIn* fields except for this and next month
+      final keysToRemove = data.keys
+          .where((key) => key.startsWith('bookingsIn') && !monthFieldsToKeep.contains(key))
+          .toList();
+      for (var key in keysToRemove) {
+        data.remove(key);
+      }
+
+      // Increment for booked month
+      final curField = 'bookingsIn$thisMonth';
+      int curCount = (data[curField] ?? 0) as int;
+      data[curField] = curCount + 1;
+
+      transaction.set(userRef, data, SetOptions(merge: true));
+    });
+  }
+
+  Future<void> _decrementMonthlyBookingCount(String userEmail, DateTime bookingDate) async {
+    final userRef = _firestore.collection('users').doc(userEmail);
+
+    // Determine booking month and next month relative to bookingDate
+    final thisMonth = DateFormat('MMMM').format(bookingDate); // e.g. "July"
+    final nextMonthDate = DateTime(
+      bookingDate.month == 12 ? bookingDate.year + 1 : bookingDate.year,
+      bookingDate.month == 12 ? 1 : bookingDate.month + 1,
+    );
+    final nextMonth = DateFormat('MMMM').format(nextMonthDate);
+    final monthFieldsToKeep = {'bookingsIn$thisMonth', 'bookingsIn$nextMonth'};
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(userRef);
+      if (!snapshot.exists) return;
+      Map<String, dynamic> data = snapshot.data() ?? {};
+
+      // Remove any old bookingsIn* fields except for this and next month
+      final keysToRemove = data.keys
+          .where((key) => key.startsWith('bookingsIn') && !monthFieldsToKeep.contains(key))
+          .toList();
+      for (var key in keysToRemove) {
+        data.remove(key);
+      }
+
+      // Decrement from the correct month field (thisMonth) only
+      final fieldToDecrement = 'bookingsIn$thisMonth';
+      int currentCount = (data[fieldToDecrement] ?? 0) as int;
+      data[fieldToDecrement] = (currentCount > 0) ? currentCount - 1 : 0;
+
+      transaction.set(userRef, data, SetOptions(merge: true));
+    });
+  }
+
+
 
   /// ---- SECTION: OPTIMIZED USER & SLOT PROFILE ----
 
@@ -345,6 +423,7 @@ class BookingBackend {
 
       // Clear relevant caches after successful booking
       _clearBookingRelatedCaches(dateStr, userEmail);
+      await _incrementMonthlyBookingCount(userEmail,date);
 
       return {
         'success': true,
@@ -358,7 +437,6 @@ class BookingBackend {
       };
     }
   }
-
   Future<Map<String, dynamic>> cancelBookingForDate({
     required String slotId,
     required String userEmail,
@@ -426,10 +504,16 @@ class BookingBackend {
         };
       });
 
+      // ✅ FIXED: Only decrement count for regular bookings, not alternative bookings
+      final wasAlternative = result['wasAlternative'] as bool;
+      if (!wasAlternative) {
+        // Only decrement count when cancelling user's own assigned slot booking
+        await _decrementMonthlyBookingCount(userEmail, date);
+      }
+
       // Clear relevant caches after successful cancellation
       _clearBookingRelatedCaches(dateStr, userEmail);
 
-      final wasAlternative = result['wasAlternative'] as bool;
       final successMessage = wasAlternative
           ? 'Successfully cancelled alternative booking for ${_getDateDisplayName(date)}! Slot is now available for others.'
           : 'Successfully cancelled booking for ${_getDateDisplayName(date)}!';
@@ -442,6 +526,7 @@ class BookingBackend {
       };
     }
   }
+
 
   /// This is used for status on a given slot/date for colored marking.
   Future<Map<String, dynamic>> getBookingStatusForDate({

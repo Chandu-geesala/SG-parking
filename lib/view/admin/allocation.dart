@@ -674,20 +674,33 @@ class _AllocationUIState extends State<AllocationUI> {
                   _buildChip(vehicleCompatibility, Colors.purple),
               ],
             ),
-            // Show expiry status for allocated slots
+
+// Show emails of allotted users (instead of expiry status)
             if (allotedTo.isNotEmpty) ...[
               SizedBox(height: isWide ? 8 : 6),
-              ...allotedTo.map((allocation) {
-                if (allocation is Map) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: SlotPeriodManager.getExpiryStatusWidget(
-                        allocation as Map<String, dynamic>, context),
-                  );
-                }
-                return const SizedBox.shrink();
-              }).toList(),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: allotedTo.map<Widget>((allocation) {
+                  // Defensive: check map structure
+                  if (allocation is Map && allocation['email'] != null && allocation['email'].toString().isNotEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        allocation['email'],
+                        style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.w500),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }).toList(),
+              ),
             ],
+
           ],
         ),
         trailing: Icon(Icons.arrow_forward_ios, size: isWide ? 16 : 14),
@@ -1831,58 +1844,6 @@ class SlotPeriodManager {
     return updatedAllocation;
   }
 
-  /// Gets expiry status widget for admin UI
-  static Widget getExpiryStatusWidget(
-      Map<String, dynamic> allocation,
-      BuildContext context,
-      ) {
-    final daysUntilExpiry = getDaysUntilExpiry(allocation);
-    Color statusColor;
-    IconData statusIcon;
-    String statusText;
-
-    if (daysUntilExpiry < 0) {
-      // Expired
-      statusColor = Colors.red;
-      statusIcon = Icons.error;
-      statusText = 'Expired ${-daysUntilExpiry} days ago';
-    } else if (daysUntilExpiry < 30) {
-      // Expiring soon
-      statusColor = daysUntilExpiry <= 7 ? Colors.orange : Colors.amber;
-      statusIcon = daysUntilExpiry <= 7 ? Icons.warning : Icons.schedule;
-      statusText = 'Expires in $daysUntilExpiry days';
-    } else {
-      // Active
-      int monthsLeft = (daysUntilExpiry / 30).ceil();
-      statusColor = Colors.green;
-      statusIcon = Icons.check_circle;
-      statusText = 'Active ($monthsLeft month${monthsLeft > 1 ? 's' : ''} left)';
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: statusColor.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(statusIcon, size: 14, color: statusColor),
-          const SizedBox(width: 4),
-          Text(
-            statusText,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   /// Bulk removes expired slot allocations
   static Future<void> bulkRemoveExpiredAllocations() async {

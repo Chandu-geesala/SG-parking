@@ -583,6 +583,7 @@ class _BookingDashboardState extends State<BookingDashboard>
             _buildFilteredSlotsList(),
             SizedBox(height: isLargeScreen ? 24 : 20),
             const AnalyticsExportWidget(),
+            const BookingLimitToggleWidget(),
           ],
         );
       },

@@ -1054,3 +1054,179 @@ class _AnalyticsExportWidgetState extends State<AnalyticsExportWidget> {
     super.dispose();
   }
 }
+
+
+class BookingLimitToggleWidget extends StatefulWidget {
+  /// Callback when toggle changes, e.g. to save backend setting later.
+  final ValueChanged<bool>? onToggleChanged;
+
+  const BookingLimitToggleWidget({
+    Key? key,
+    this.onToggleChanged,
+  }) : super(key: key);
+
+  @override
+  State<BookingLimitToggleWidget> createState() =>
+      _BookingLimitToggleWidgetState();
+}
+
+class _BookingLimitToggleWidgetState extends State<BookingLimitToggleWidget> {
+  bool? _isEnabled; // nullable to show loading initially
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchToggleStateFromFirestore();
+  }
+
+  Future<void> _fetchToggleStateFromFirestore() async {
+    try {
+      final docRef = FirebaseFirestore.instance.collection('limit').doc('config');
+      final docSnap = await docRef.get();
+
+      final data = docSnap.data();
+      final toggleOn = data != null && data['toggleOn'] is bool ? data['toggleOn'] as bool : false;
+
+      // Update the state with the fetched toggle value
+      setState(() {
+        _isEnabled = toggleOn;
+        _isLoading = false;
+      });
+    } catch (e) {
+      // In case of error, default false, but hide loader
+      setState(() {
+        _isEnabled = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _updateBookingLimitToggle(bool toggleOn) async {
+    final FirebaseFirestore firestore = FirebaseFirestore.instance;
+    final docRef = firestore.collection('limit').doc('config');
+    final now = DateTime.now();
+
+    // Fetch existing data so we don't overwrite monthCounts if present
+    final docSnap = await docRef.get();
+    Map<String, dynamic> data = docSnap.data() ?? {};
+    Map<String, dynamic> monthCounts = Map<String, dynamic>.from(data['monthCounts'] ?? {});
+
+    // Add working days counts for months from current to December if not present
+    for (int m = now.month; m <= 12; m++) {
+      final monthStr = DateFormat('MMMM').format(DateTime(now.year, m));
+      if (!monthCounts.containsKey(monthStr)) {
+        monthCounts[monthStr] = _workingDaysInMonth(now.year, m);
+      }
+    }
+
+    // Prepare and save data
+    await docRef.set({
+      'toggleOn': toggleOn,
+      'monthCounts': monthCounts,
+    }, SetOptions(merge: true));
+  }
+
+  // Helper to calculate working days (excludes Sat, Sun)
+  int _workingDaysInMonth(int year, int month) {
+    int count = 0;
+    final daysInMonth = DateTime(year, month + 1, 0).day;
+    for (int d = 1; d <= daysInMonth; d++) {
+      final weekday = DateTime(year, month, d).weekday;
+      if (weekday != DateTime.saturday && weekday != DateTime.sunday) count++;
+    }
+    return count;
+  }
+
+  void _onToggle(bool newValue) async {
+    setState(() {
+      _isEnabled = newValue;
+    });
+
+    await _updateBookingLimitToggle(newValue);
+
+    widget.onToggleChanged?.call(newValue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final bgColor = isDark ? Colors.grey[850] : Colors.grey[100];
+    final cardColor = isDark ? Colors.grey[900] : Colors.white;
+    final borderColor = isDark ? Colors.blue[300]! : Colors.blue[600]!;
+
+    if (_isLoading || _isEnabled == null) {
+      // Show loading spinner while fetching the toggle status
+      return Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: isDark
+            ? [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.6),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          )
+        ]
+            : [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          )
+        ],
+        border: Border.all(
+          color: _isEnabled! ? borderColor : Colors.transparent,
+          width: _isEnabled! ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title Row: Label + Toggle
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Enable Monthly Booking Limit',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: _isEnabled! ? primaryColor : (isDark ? Colors.white70 : Colors.black87),
+                ),
+              ),
+              Switch.adaptive(
+                value: _isEnabled!,
+                onChanged: _onToggle,
+                activeColor: primaryColor,
+                inactiveThumbColor: Colors.grey,
+                inactiveTrackColor: Colors.grey.withOpacity(0.4),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Description
+          Text(
+            'Toggle this to enable fair monthly booking limits per user, excluding weekends',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? Colors.white60 : Colors.black54,
+            ),
+          ),
+
+        ],
+      ),
+    );
+  }
+}

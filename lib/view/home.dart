@@ -235,10 +235,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Random welcome messages
     final welcomeMessages = [
-      "Hi $userName 👋",
-      "Welcome $userName",
-      "Hello $userName",
-      "Back again $userName",
+      "Ready to park, $userName?",
+      "Welcome back, $userName! Your spot awaits 🚗",
+      "Let's find you the perfect space, $userName!",
+      "Good to see you again, $userName! 🚙",
+      "$userName, your parking journey starts here.",
+      "Hey $userName — your car called, it's ready to park!",
+      "Back for more parking wins, $userName?",
+      "Hello $userName! Finding free spots just got easier.",
+      "Let's get you parked, $userName!",
+      "Welcome, $userName! Smooth parking ahead.",
     ];
 
     // Pick random message (you can also use time-based or other logic)

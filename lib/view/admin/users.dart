@@ -1232,6 +1232,8 @@ class _AllUsersPageState extends State<AllUsersPage> {
 
   /// Build user details section
   Widget _buildUserDetailsSection(Map<String, dynamic> user, String userEmail) {
+    final vehicles = user['vehicles'] as List<dynamic>? ?? [];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1282,12 +1284,88 @@ class _AllUsersPageState extends State<AllUsersPage> {
               _buildDetailRow('User Type', user['userType'] ?? 'N/A'),
               _buildDetailRow('Email Verified', user['emailVerified'] == true ? 'Yes' : 'No'),
               _buildDetailRow('Joined', _formatDate(user['createdAt'])),
+              _buildUserVehiclesSection(vehicles),
             ],
           ),
         ),
       ],
     );
   }
+
+  Widget _buildUserVehiclesSection(List<dynamic> vehicles) {
+    if (vehicles.isEmpty) {
+      return Text(
+        'No vehicles added',
+        style: TextStyle(
+          fontStyle: FontStyle.italic,
+          color: Colors.grey,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Vehicles',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...vehicles.map((vehicle) {
+          final Map<String, dynamic> v = vehicle as Map<String, dynamic>;
+          final vehicleNumber = (v['number'] ?? '').toString().toUpperCase();
+          final dimensions = v['dimensions']?.toString() ?? 'Size N/A';
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.directions_car_rounded,
+                  size: 20,
+                  color: Colors.blueGrey,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        vehicleNumber,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Size: $dimensions',
+                        style: const TextStyle(
+                          fontSize: 14,
+
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+
+
 
   /// Build slot details section using cached data
   Widget _buildSlotDetailsSection(Map<String, dynamic> user, String userEmail) {
