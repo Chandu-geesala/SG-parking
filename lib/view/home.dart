@@ -3,9 +3,18 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+import '../utils/backgroundAnimations.dart';
 import '../utils/booking_cards.dart';
 import 'package:park_sg/utils/theme_provider.dart';
 import '../viewModel/bookingBackend.dart';
+import 'dart:math' as math;
+
+
+
+
+import 'dart:ui';
+
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -231,57 +240,8 @@ class _HomeScreenState extends State<HomeScreen> {
 // Replace the _buildWelcomeSection method with this minimal design:
 
   Widget _buildWelcomeSection(String userName) {
-    final isLargeScreen = _isLargeScreen(context);
-
-    // Random welcome messages
-    final welcomeMessages = [
-      "Ready to park, $userName?",
-      "Welcome back, $userName! Your spot awaits 🚗",
-      "Let's find you the perfect space, $userName!",
-      "Good to see you again, $userName! 🚙",
-      "$userName, your parking journey starts here.",
-      "Hey $userName — your car called, it's ready to park!",
-      "Back for more parking wins, $userName?",
-      "Hello $userName! Finding free spots just got easier.",
-      "Let's get you parked, $userName!",
-      "Welcome, $userName! Smooth parking ahead.",
-    ];
-
-    // Pick random message (you can also use time-based or other logic)
-    final randomMessage = welcomeMessages[DateTime.now().millisecond % welcomeMessages.length];
-
-    return Container(
-      width: double.infinity,
-      margin: EdgeInsets.only(top: isLargeScreen ? 8 : 4),
-      padding: EdgeInsets.symmetric(
-        horizontal: isLargeScreen ? 32 : 20,
-        vertical: isLargeScreen ? 24 : 20,
-      ),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(isLargeScreen ? 32 : 28),
-          bottomRight: Radius.circular(isLargeScreen ? 32 : 28),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              randomMessage,
-              style: TextStyle(
-                color: Colors.white,
-                fontFamily: "Mont",fontSize: isLargeScreen ? 26 : 22,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-
-        ],
-      ),
-    );
+    return _WelcomeSectionState(userName: userName);
   }
-
 
 
   Widget _buildNoSlotAssignedCard() {
@@ -462,3 +422,361 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 
+
+class _WelcomeSectionState extends StatefulWidget {
+  final String userName;
+
+  const _WelcomeSectionState({required this.userName});
+
+  @override
+  State<_WelcomeSectionState> createState() => _WelcomeSectionStateImpl();
+}
+
+class _WelcomeSectionStateImpl extends State<_WelcomeSectionState>
+    with TickerProviderStateMixin {
+  late AnimationController _waveController;
+  late AnimationController _fadeController;
+  late AnimationController _shimmerController;
+
+  late Animation<double> _waveAnimation;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _shimmerAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _waveController = AnimationController(
+      duration: const Duration(seconds: 6),
+      vsync: this,
+    )..repeat();
+
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+
+    _shimmerController = AnimationController(
+      duration: const Duration(seconds: 4),
+      vsync: this,
+    )..repeat();
+
+    _waveAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(
+      parent: _waveController,
+      curve: Curves.easeInOut,
+    ));
+
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    ));
+
+    _shimmerAnimation = Tween<double>(
+      begin: -1.0,
+      end: 2.0,
+    ).animate(CurvedAnimation(
+      parent: _shimmerController,
+      curve: Curves.easeInOut,
+    ));
+
+    _fadeController.forward();
+  }
+
+  @override
+  void dispose() {
+    _waveController.dispose();
+    _fadeController.dispose();
+    _shimmerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isLargeScreen = MediaQuery.of(context).size.width > 600;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Container(
+        margin: EdgeInsets.all(isLargeScreen ? 16 : 12),
+        child: Stack(
+          children: [
+            // Glass container (with internal background animation)
+            _buildGlassContainer(isLargeScreen, isDark),
+
+            // Shimmer effect
+            _buildShimmerEffect(isLargeScreen),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildGlassContainer(bool isLargeScreen, bool isDark) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 20),
+      child: Stack(
+        children: [
+          // Animated background particles - INSIDE the glass container
+          if (isDark) _buildBackgroundParticles(isDark),
+
+          // Glass effect with backdrop filter
+          BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              width: double.infinity, // Ensure the container has explicit width
+              padding: EdgeInsets.symmetric(
+                horizontal: isLargeScreen ? 24 : 20,
+                vertical: isLargeScreen ? 20 : 16,
+              ),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isDark
+                      ? [
+                    Colors.white.withOpacity(0.1),
+                    Colors.white.withOpacity(0.05),
+                  ]
+                      : [
+                    Colors.white.withOpacity(0.25),
+                    Colors.white.withOpacity(0.1),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 20),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.2)
+                      : Colors.white.withOpacity(0.3),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.black.withOpacity(0.3)
+                        : Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: _buildContent(isLargeScreen, isDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+  Widget _buildContent(bool isLargeScreen, bool isDark) {
+    final greetings = _getTimeBasedGreeting();
+
+    return Row(
+      children: [
+
+        // Text content
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Greeting text
+              _buildGreetingText(greetings['greeting']!, isLargeScreen, isDark),
+
+              const SizedBox(height: 4),
+
+              // Welcome message
+              _buildWelcomeText(
+                greetings['message']!.replaceFirst('{name}', widget.userName),
+                isLargeScreen,
+                isDark,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnimatedIcon(bool isLargeScreen, bool isDark) {
+    return AnimatedBuilder(
+      animation: _waveAnimation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 1.0 + math.sin(_waveAnimation.value * 2 * math.pi) * 0.1,
+          child: Container(
+            padding: EdgeInsets.all(isLargeScreen ? 12 : 10),
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                colors: isDark
+                    ? [
+                  const Color(0xFF6366F1).withOpacity(0.8),
+                  const Color(0xFF8B5CF6).withOpacity(0.6),
+                  const Color(0xFFA855F7).withOpacity(0.4),
+                ]
+                    : [
+                  const Color(0xFF3B82F6).withOpacity(0.8),
+                  const Color(0xFF6366F1).withOpacity(0.6),
+                  const Color(0xFF8B5CF6).withOpacity(0.4),
+                ],
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: isDark
+                      ? const Color(0xFF6366F1).withOpacity(0.3)
+                      : const Color(0xFF3B82F6).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(
+              _getTimeBasedIcon(),
+              color: Colors.white,
+              size: isLargeScreen ? 24 : 20,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGreetingText(String greeting, bool isLargeScreen, bool isDark) {
+    return Text(
+      greeting,
+      style: TextStyle(
+        color: isDark
+            ? Colors.white.withOpacity(0.8)
+            : Colors.black.withOpacity(0.7),
+        fontSize: isLargeScreen ? 14 : 12,
+        fontWeight: FontWeight.w500,
+        letterSpacing: 0.3,
+      ),
+    );
+  }
+
+  Widget _buildWelcomeText(String message, bool isLargeScreen, bool isDark) {
+    return ShaderMask(
+      shaderCallback: (bounds) => LinearGradient(
+        colors: isDark
+            ? [
+          const Color(0xFFFFFFFF),
+          const Color(0xFFF1F5F9),
+          const Color(0xFFE2E8F0),
+        ]
+            : [
+          const Color(0xFF1E293B),
+          const Color(0xFF334155),
+          const Color(0xFF475569),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(bounds),
+      child: Text(
+        message,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: isLargeScreen ? 18 : 16,
+          fontWeight: FontWeight.w700,
+          height: 1.3,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackgroundParticles(bool isDark) {
+    return Positioned.fill(
+      child: AnimatedBuilder(
+        animation: _waveAnimation,
+        builder: (context, child) {
+          return CustomPaint(
+            painter: BackgroundPainter(_waveAnimation),
+            // Remove Size.infinite - let it inherit from parent constraints
+          );
+        },
+      ),
+    );
+  }
+
+
+  Widget _buildShimmerEffect(bool isLargeScreen) {
+    return AnimatedBuilder(
+      animation: _shimmerAnimation,
+      builder: (context, child) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(isLargeScreen ? 24 : 20),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.transparent,
+                  Colors.white.withOpacity(0.1),
+                  Colors.transparent,
+                ],
+                stops: [
+                  (_shimmerAnimation.value - 0.3).clamp(0.0, 1.0),
+                  _shimmerAnimation.value.clamp(0.0, 1.0),
+                  (_shimmerAnimation.value + 0.3).clamp(0.0, 1.0),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Map<String, String> _getTimeBasedGreeting() {
+    final hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return {
+        'greeting': '🌅 Good Morning',
+        'message': 'Ready for today, {name}?',
+      };
+    } else if (hour < 17) {
+      return {
+        'greeting': '☀️ Good Afternoon',
+        'message': 'Great to see you, {name}!',
+      };
+    } else if (hour < 21) {
+      return {
+        'greeting': '🌆 Good Evening',
+        'message': 'Welcome back, {name}!',
+      };
+    } else {
+      return {
+        'greeting': '🌙 Good Night',
+        'message': 'Working late, {name}?',
+      };
+    }
+  }
+
+  IconData _getTimeBasedIcon() {
+    final hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return Icons.wb_sunny_outlined;
+    } else if (hour < 17) {
+      return Icons.brightness_high_outlined;
+    } else if (hour < 21) {
+      return Icons.brightness_6_outlined;
+    } else {
+      return Icons.bedtime_outlined;
+    }
+  }
+}

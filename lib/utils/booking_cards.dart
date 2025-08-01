@@ -47,6 +47,11 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
+  Map<DateTime, bool> _dayTileLoadingStates = {}; // Track loading per date
+  bool _isBookingInProgress = false; // General booking operation flag
+
+
+
 
   Future<Map<String, dynamic>?> _userSlotFuture = Future.value(null);
 
@@ -337,8 +342,7 @@ class _BookingCardsState extends State<BookingCards> {
   }
 
 
-  Widget _buildCombinedWeeklyParkingCard(List<dynamic> allotedTo)
- {
+  Widget _buildCombinedWeeklyParkingCard(List<dynamic> allotedTo) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -376,37 +380,145 @@ class _BookingCardsState extends State<BookingCards> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Let us know when you don’t need parking—just tap below! ',
+                  'Let us know when you don\'t need parking—just tap below! ',
                   style: TextStyle(
                     fontSize: 16,
-
                     fontWeight: FontWeight.w600,
                     color: Theme.of(context).colorScheme.onSurface.withOpacity(0.85),
                   ),
                 ),
               ),
-
             ],
-
           ),
           const SizedBox(height: 20),
-// spacing
+
           BookingLimitStatus(slotUsersCount: allotedTo.length),
-
-
           const SizedBox(height: 20),
 
-          // Weekly Calendar with combined functionality
-          _buildCombinedWeeklyCalendar(),
+          // Show loading or loaded weekly calendar
+          _isLoadingWeeklyData
+              ? _buildLoadingWeeklyCalendar()
+              : _buildCombinedWeeklyCalendar(),
 
           const SizedBox(height: 16),
-
-          // Legend
           _buildCombinedLegend(),
         ],
       ),
     );
   }
+
+
+  Widget _buildLoadingWeeklyCalendar() {
+    final workingDays = _getNextWorkingDays(5);
+
+    return Column(
+      children: [
+        // Desktop/Tablet Layout - Single row for 5 working days
+        if (MediaQuery.of(context).size.width > 600) ...[
+          Row(
+            children: workingDays.map((date) =>
+                Expanded(child: _buildLoadingDayTile(date))
+            ).toList(),
+          ),
+        ] else ...[
+          // Mobile Layout - 2 rows (3 + 2)
+          Column(
+            children: [
+              Row(
+                children: workingDays.take(3).map((date) =>
+                    Expanded(child: _buildLoadingDayTile(date))
+                ).toList(),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ...workingDays.skip(3).map((date) =>
+                      Expanded(child: _buildLoadingDayTile(date))
+                  ).toList(),
+                  // Fill remaining space to center the 2 items
+                  if (workingDays.length > 3)
+                    Expanded(child: Container()),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+
+
+  Widget _buildLoadingDayTile(DateTime date) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Day name shimmer
+            _buildShimmerBox(width: 25, height: 12),
+            const SizedBox(height: 4),
+
+            // Date shimmer
+            _buildShimmerBox(width: 20, height: 16),
+            const SizedBox(height: 2),
+
+            // Month shimmer
+            _buildShimmerBox(width: 22, height: 10),
+            const SizedBox(height: 4),
+
+            // Status icon shimmer
+            _buildShimmerBox(width: 16, height: 16, isCircle: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerBox({
+    required double width,
+    required double height,
+    bool isCircle = false
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 1500),
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: isCircle
+            ? BorderRadius.circular(height / 2)
+            : BorderRadius.circular(4),
+        gradient: LinearGradient(
+          colors: Theme.of(context).brightness == Brightness.dark
+              ? [
+            Colors.grey[700]!,
+            Colors.grey[600]!,
+            Colors.grey[700]!,
+          ]
+              : [
+            Colors.grey[200]!,
+            Colors.grey[100]!,
+            Colors.grey[200]!,
+          ],
+          stops: const [0.1, 0.3, 0.4],
+          begin: const Alignment(-1.0, -0.3),
+          end: const Alignment(1.0, 0.3),
+        ),
+      ),
+    );
+  }
+
+
+
 
   Widget _buildCombinedLegend() {
     return Container(
@@ -432,9 +544,11 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
+
   Widget _buildCombinedDayTile(DateTime date) {
     final isToday = DateUtils.isSameDay(date, DateTime.now());
     final isPast = date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+    final isLoadingThisDate = _dayTileLoadingStates[date] ?? false; // ✅ NEW
 
     // Check user declaration first
     final hasUserDeclaration = _datePreferences.containsKey(date);
@@ -444,24 +558,24 @@ class _BookingCardsState extends State<BookingCards> {
     final isSlotBooked = slotData?['isBooked'] == true;
     final isBookedByCurrentUser = slotData?['isBookedByCurrentUser'] == true;
 
-
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 2),
       child: InkWell(
-        onTap: isPast ? null : () {
+        onTap: isPast || isLoadingThisDate ? null : () {  // ✅ Disable tap when loading
           _showCombinedOptionsSheet(date);
         },
         borderRadius: BorderRadius.circular(12),
-        child: Container(
+        child: AnimatedContainer( // ✅ Made container animated
+          duration: const Duration(milliseconds: 300),
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           decoration: BoxDecoration(
             color: _getCombinedDayTileColor(
-                isToday,
-                hasUserDeclaration,
-                isSlotBooked,
-                isBookedByCurrentUser,
-                isPast,
-                date,
+              isToday,
+              hasUserDeclaration,
+              isSlotBooked,
+              isBookedByCurrentUser,
+              isPast,
+              date,
             ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
@@ -523,13 +637,27 @@ class _BookingCardsState extends State<BookingCards> {
               ),
               const SizedBox(height: 4),
 
-              // Status icon
-              _getCombinedStatusIcon(
-                  hasUserDeclaration,
-                  isSlotBooked,
-                  isBookedByCurrentUser,
-                  isPast,
-                  date
+              // ✅ NEW: Status icon with loading animation
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: isLoadingThisDate
+                    ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                )
+                    : _getCombinedStatusIcon(
+                    hasUserDeclaration,
+                    isSlotBooked,
+                    isBookedByCurrentUser,
+                    isPast,
+                    date
+                ),
               ),
             ],
           ),
@@ -537,7 +665,6 @@ class _BookingCardsState extends State<BookingCards> {
       ),
     );
   }
-
 
 
   Widget _buildCombinedWeeklyCalendar() {
@@ -2932,12 +3059,33 @@ class _BookingCardsState extends State<BookingCards> {
     );
   }
 
+// Helper methods to manage individual day tile loading states
+  void _setDayTileLoading(DateTime date, bool isLoading) {
+    setState(() {
+      if (isLoading) {
+        _dayTileLoadingStates[date] = true;
+      } else {
+        _dayTileLoadingStates.remove(date);
+      }
+    });
+  }
+
+  void _clearAllDayTileLoading() {
+    setState(() {
+      _dayTileLoadingStates.clear();
+    });
+  }
+
+
 
   Future<void> _bookAvailableSlot(Map<String, dynamic> slot, DateTime date) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final slotId = slot['slotId'] as String;
+
+    // ✅ NEW: Set loading for this specific date
+    _setDayTileLoading(date, true);
 
     // Show loading dialog
     showDialog(
@@ -2968,7 +3116,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // âœ… IMMEDIATE: Update cache with alternative booking data
+        // Update cache with alternative booking data
         await _updateWeeklyCacheForDate(
           date,
           isBooked: true,
@@ -2978,7 +3126,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // âœ… REFRESH: Complete data reload
+        // Complete data reload
         await refreshData();
       } else {
         final message = result['message'] as String;
@@ -2991,8 +3139,13 @@ class _BookingCardsState extends State<BookingCards> {
     } catch (e) {
       Navigator.pop(context);
       _backend.showSnackBar(context, 'Error booking slot: $e', isError: true);
+    } finally {
+      // ✅ NEW: Clear loading for this specific date
+      _setDayTileLoading(date, false);
     }
   }
+
+
 
   Future<void> _showAlreadyBookedDialog(String message, DateTime date) async {
     // Parse the message: "already_booked_other:slotId:userName"
@@ -3506,7 +3659,11 @@ class _BookingCardsState extends State<BookingCards> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    // ✅ NEW: Set loading for this specific date
+    _setDayTileLoading(date, true);
+
     setState(() {
+      _isBookingInProgress = true;
       _isLoadingBookingStatus = true;
     });
 
@@ -3533,7 +3690,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // âœ… IMMEDIATE: Clear weekly cache completely for this date
+        // Update weekly cache
         await _updateWeeklyCacheForDate(
           date,
           isBooked: false,
@@ -3543,7 +3700,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // âœ… REFRESH: Reload actual status to check if assigned slot is booked by others
+        // Reload actual status
         await _loadSingleDateSlotStatus(date);
         _loadBookingStatusForDate(date);
       } else {
@@ -3552,7 +3709,11 @@ class _BookingCardsState extends State<BookingCards> {
     } catch (e) {
       _backend.showSnackBar(context, 'Error cancelling booking: $e', isError: true);
     } finally {
+      // ✅ NEW: Clear loading for this specific date
+      _setDayTileLoading(date, false);
+
       setState(() {
+        _isBookingInProgress = false;
         _isLoadingBookingStatus = false;
       });
     }
@@ -3850,7 +4011,12 @@ class _BookingCardsState extends State<BookingCards> {
     final slotId = userSlot['slotId'] as String;
     final isToday = DateUtils.isSameDay(date, DateTime.now());
 
+    // ✅ NEW: Set loading for this specific date
+    _setDayTileLoading(date, true);
+
+    // Keep existing loading states for backwards compatibility
     setState(() {
+      _isBookingInProgress = true;
       if (isToday) {
         _isLoadingTodayBooking = true;
       } else {
@@ -3873,7 +4039,7 @@ class _BookingCardsState extends State<BookingCards> {
       if (result['success']) {
         _backend.showSnackBar(context, result['message']);
 
-        // âœ… IMMEDIATE: Update weekly cache with complete data
+        // Update weekly cache with complete data
         await _updateWeeklyCacheForDate(
           date,
           isBooked: true,
@@ -3883,7 +4049,7 @@ class _BookingCardsState extends State<BookingCards> {
           assignedSlotBookedByOther: false,
         );
 
-        // âœ… REFRESH: Update other data sources
+        // Update other data sources
         if (isToday) {
           await _refreshTodayOnly();
         } else {
@@ -3895,7 +4061,11 @@ class _BookingCardsState extends State<BookingCards> {
     } catch (e) {
       _backend.showSnackBar(context, 'Error booking slot: $e', isError: true);
     } finally {
+      // ✅ NEW: Clear loading for this specific date
+      _setDayTileLoading(date, false);
+
       setState(() {
+        _isBookingInProgress = false;
         if (isToday) {
           _isLoadingTodayBooking = false;
         } else {
