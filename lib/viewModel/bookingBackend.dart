@@ -138,23 +138,59 @@ class BookingBackend {
 
   Future<void> signOut(BuildContext context) async {
     try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        },
+      );
+
+      // Sign out from Firebase first (most critical operation)
       await _auth.signOut();
 
-      // Clear all caches on sign out
-      await clearAllCaches();
+      // Check if context is still mounted before proceeding
+      if (!context.mounted) return;
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      // Dismiss loading dialog
+      Navigator.of(context).pop();
 
+      // Navigate to splash screen immediately
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => MysplashScreen()),
             (route) => false,
       );
+
+      // Clear caches in background (don't await these operations)
+      _clearCachesInBackground();
+
     } catch (e) {
       print('Error signing out: $e');
-      throw e;
+
+      // Ensure loading dialog is dismissed even on error
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        showSnackBar(context, 'Sign out failed. Please try again.', isError: true);
+      }
     }
+  }
+
+// Add this helper method after the signOut method
+  void _clearCachesInBackground() {
+    // Run cache clearing in background without blocking UI
+    Future.microtask(() async {
+      try {
+        await clearAllCaches();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+      } catch (e) {
+        print('Background cache clearing failed: $e');
+      }
+    });
   }
 
   /// ---- Booking Limit ----
