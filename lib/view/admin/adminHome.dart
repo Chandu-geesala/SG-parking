@@ -1,3 +1,4 @@
+import 'package:park_sg/view/home.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:park_sg/view/admin/requests.dart';
@@ -28,6 +29,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _currentUser = FirebaseAuth.instance.currentUser;
     _loadProfileData();
   }
 
@@ -37,6 +39,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     });
 
     try {
+      // Always ensure we have the current user
+      _currentUser = FirebaseAuth.instance.currentUser;
+
       final profileData = await _backend.getProfileData();
       setState(() {
         _profileData = profileData;
@@ -50,6 +55,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       });
     }
   }
+
 
   // Pull-to-refresh handler
   Future<void> _handleRefresh() async {
@@ -85,17 +91,32 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   String _getDisplayName() {
-    if (_profileData != null && _profileData!['name'] != null && (_profileData!['name'] as String).isNotEmpty) {
+    // Ensure we have current user
+    _currentUser ??= FirebaseAuth.instance.currentUser;
+
+    // Check profile data first
+    if (_profileData != null &&
+        _profileData!['name'] != null &&
+        (_profileData!['name'] as String).isNotEmpty) {
       return _profileData!['name'];
     }
-    if (_currentUser?.displayName != null && _currentUser!.displayName!.isNotEmpty) {
+
+    // Check Firebase user display name
+    if (_currentUser?.displayName != null &&
+        _currentUser!.displayName!.isNotEmpty) {
       return _currentUser!.displayName!;
     }
-    if (_currentUser?.email != null && _currentUser!.email!.isNotEmpty) {
-      return _currentUser!.email!.split('@').first;
+
+    // Extract name from email using your backend method
+    if (_currentUser?.email != null &&
+        _currentUser!.email!.isNotEmpty) {
+      return _backend.getDisplayNameFromEmail(_currentUser!.email!);
     }
+
+    // Fallback
     return 'Admin';
   }
+
 
   String? _getPhotoUrl() {
     final pdUrl = _profileData?['photoUrl'];
@@ -179,6 +200,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+
+                  _buildWelcomeSection(_getDisplayName()),
+                  SizedBox(height: isLargeScreen ? 32 : 24),
+
                   // Admin Controls Section (Quick Actions)
                   Text(
                     'Admin Controls',
@@ -324,6 +349,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildWelcomeSection(String userName) {
+    return WelcomeSectionState(userName: userName);
   }
 
   Widget _buildProfileMenu(BuildContext context) {

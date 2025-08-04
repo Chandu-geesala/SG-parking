@@ -643,32 +643,40 @@ class _BookingDashboardState extends State<BookingDashboard>
           _onDateTypeChanged(type);
         }
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
+
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
             color: isSelected
-                ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
-                : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
-            width: 1,
+                ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
+              width: 1,
+            ),
+          ),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
           ),
         ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected
-                ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
-                : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
+
       ),
+
+
+
     );
   }
 
@@ -687,43 +695,49 @@ class _BookingDashboardState extends State<BookingDashboard>
           _onDateTypeChanged(type);
         }
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
+
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
             color: isSelected
-                ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
-                : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
-            width: 1,
+                ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : const Color(0xFF6C5CE7).withOpacity(0.1))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                  : (isDark ? theme.colorScheme.outline.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon,
+                  size: 14,
+                  color: isSelected
+                      ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                      : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600])),
+              const SizedBox(width: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isSelected
+                      ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
+                      : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon,
-                size: 14,
-                color: isSelected
-                    ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
-                    : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600])),
-            const SizedBox(width: 4),
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected
-                    ? (isDark ? theme.colorScheme.primary : const Color(0xFF6C5CE7))
-                    : (isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey[600]),
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
       ),
+
+
     );
   }
 
@@ -847,11 +861,14 @@ class _BookingDashboardState extends State<BookingDashboard>
           Expanded(
             child: Row(
               children: [
-                _buildMiniStatChip('Booked', booked, const Color(0xFFEF4444), vehicleType),
-                const SizedBox(width: 6),
-                _buildMiniStatChip('Available', available, const Color(0xFFF59E0B), vehicleType),
+
+
+                _buildMiniStatChip('Available', available, const Color(
+                    0xFF45F50B), vehicleType),
                 const SizedBox(width: 6),
                 _buildMiniStatChip('Unbooked', unbooked, const Color(0xFF6B7280), vehicleType),
+                const SizedBox(width: 6),
+                _buildMiniStatChip('Booked', booked, const Color(0xFFEF4444), vehicleType),
               ],
             ),
           ),
@@ -869,47 +886,51 @@ class _BookingDashboardState extends State<BookingDashboard>
     return Expanded(
       child: GestureDetector(
         onTap: () => _onStatCardTapped(label.toLowerCase(), vehicleType),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? color.withOpacity(0.2)
-                : color.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(6),
-            border: isSelected
-                ? Border.all(color: color, width: 1.5)
-                : Border.all(color: color.withOpacity(0.2), width: 1),
-            boxShadow: isSelected ? [
-              BoxShadow(
-                color: color.withOpacity(0.3),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ] : null,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                count.toString(),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: isSelected ? color : colorScheme.onSurface,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? color.withOpacity(0.2)
+                  : color.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(6),
+              border: isSelected
+                  ? Border.all(color: color, width: 1.5)
+                  : Border.all(color: color.withOpacity(0.2), width: 1),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: color.withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: isSelected ? color : colorScheme.onSurfaceVariant,
+              ] : null,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? color : colorScheme.onSurface,
+                  ),
                 ),
-              ),
-            ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: isSelected ? color : colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
+
       ),
     );
   }

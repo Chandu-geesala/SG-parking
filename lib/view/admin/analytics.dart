@@ -1216,14 +1216,16 @@ class _BookingLimitToggleWidgetState extends State<BookingLimitToggleWidget> {
 
           const SizedBox(height: 12),
 
-          // Description
           Text(
-            'Toggle this to enable fair monthly booking limits per user, excluding weekends',
+            _isEnabled!
+                ? 'Active: Monthly limits calculated by dividing total working days by number of allocated users per slot.'
+                : 'Enable to calculate fair monthly booking limits: working days ÷ total users = individual limit per month.',
             style: TextStyle(
               fontSize: 14,
               color: isDark ? Colors.white60 : Colors.black54,
             ),
           ),
+
 
         ],
       ),

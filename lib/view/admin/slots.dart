@@ -1034,39 +1034,61 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
   }
 
   /// Build slots grid
+  /// Build slots grid with dynamic card heights (ListView alternative)
   Widget _buildSlotsGrid(bool isWeb) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final columnCount = _getColumnCount(constraints.maxWidth);
-        final aspectRatio = _getAspectRatio(constraints.maxWidth);
 
-        return GridView.builder(
+        if (columnCount == 1) {
+          // Single column - use ListView for better performance
+          return ListView.separated(
+            padding: EdgeInsets.only(
+              left: isWeb ? 16 : 12,
+              right: isWeb ? 16 : 12,
+              top: isWeb ? 16 : 12,
+              bottom: isWeb ? 48 : 36,
+            ),
+            itemCount: _filteredSlots.length,
+            separatorBuilder: (context, index) => SizedBox(height: isWeb ? 16 : 8),
+            itemBuilder: (context, index) {
+              final slot = _filteredSlots[index];
+              return FadeTransition(
+                opacity: _fadeAnimation,
+                child: _buildSlotCard(slot, isWeb),
+              );
+            },
+          );
+        }
+
+        // Multi-column - use Wrap for dynamic heights
+        return SingleChildScrollView(
           padding: EdgeInsets.only(
             left: isWeb ? 16 : 12,
             right: isWeb ? 16 : 12,
             top: isWeb ? 16 : 12,
             bottom: isWeb ? 48 : 36,
           ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columnCount,
-            childAspectRatio: aspectRatio,
-            crossAxisSpacing: isWeb ? 16 : 8,
-            mainAxisSpacing: isWeb ? 16 : 8,
+          child: Wrap(
+            spacing: isWeb ? 16 : 8,
+            runSpacing: isWeb ? 16 : 8,
+            children: _filteredSlots.map((slot) {
+              return SizedBox(
+                width: (constraints.maxWidth - (isWeb ? 32 : 24) - ((columnCount - 1) * (isWeb ? 16 : 8))) / columnCount,
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: _buildSlotCard(slot, isWeb),
+                ),
+              );
+            }).toList(),
           ),
-          itemCount: _filteredSlots.length,
-          itemBuilder: (context, index) {
-            final slot = _filteredSlots[index];
-            return FadeTransition(
-              opacity: _fadeAnimation,
-              child: _buildSlotCard(slot, isWeb),
-            );
-          },
         );
       },
     );
   }
 
   /// Build individual slot card
+  /// Build individual slot card with dynamic sizing
   Widget _buildSlotCard(ParkingSlot slot, bool isWeb) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -1086,6 +1108,11 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       }
     }
 
+    // Calculate if we have any details to show
+    final hasDetails = dimensionDisplay != null ||
+        slot.vehicleCompatibility != null ||
+        slot.remarks != null;
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1F2937) : Colors.white,
@@ -1103,10 +1130,12 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, // Key change: let column size itself
         children: [
           _buildSlotCardHeader(slot, isDark, isWeb),
-          _buildSlotCardDetails(slot, dimensionDisplay, isDark, isWeb),
-          SizedBox(height: isWeb ? 12 : 8),
+          if (hasDetails) // Only show details section if there are details
+            _buildSlotCardDetails(slot, dimensionDisplay, isDark, isWeb),
+          if (hasDetails) SizedBox(height: isWeb ? 8 : 6), // Reduced spacing
           _buildSlotCardUsers(slot, isDark, isWeb),
         ],
       ),
@@ -1239,9 +1268,10 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
   }
 
   /// Build slot card users section
+  /// Build slot card users section with dynamic height
   Widget _buildSlotCardUsers(ParkingSlot slot, bool isDark, bool isWeb) {
-    return Expanded(
-      child: Container(
+    if (slot.allottedTo.isEmpty) {
+      return Container(
         margin: EdgeInsets.all(isWeb ? 16 : 12),
         padding: EdgeInsets.all(isWeb ? 12 : 10),
         decoration: BoxDecoration(
@@ -1251,54 +1281,71 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
             color: isDark ? Colors.grey[600]! : Colors.grey[200]!,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.people,
-                  size: isWeb ? 16 : 14,
-                  color: isDark ? Colors.grey[400] : Colors.grey[600],
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Users (${slot.allottedTo.length})',
-                  style: TextStyle(
-                    fontSize: isWeb ? 13 : 12,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                ),
-              ],
+            Icon(
+              Icons.people_outline,
+              size: isWeb ? 16 : 14,
+              color: isDark ? Colors.grey[500] : Colors.grey[400],
             ),
-            const SizedBox(height: 8),
-            if (slot.allottedTo.isEmpty)
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'No users assigned',
-                    style: TextStyle(
-                      fontSize: isWeb ? 12 : 11,
-                      color: isDark ? Colors.grey[500] : Colors.grey[400],
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: ListView.separated(
-                  itemCount: slot.allottedTo.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final user = slot.allottedTo[index];
-                    return _buildUserCard(user, isDark, isWeb);
-                  },
-                ),
+            const SizedBox(width: 8),
+            Text(
+              'No users assigned',
+              style: TextStyle(
+                fontSize: isWeb ? 12 : 11,
+                color: isDark ? Colors.grey[500] : Colors.grey[400],
+                fontStyle: FontStyle.italic,
               ),
+            ),
           ],
         ),
+      );
+    }
+
+    return Container(
+      margin: EdgeInsets.all(isWeb ? 16 : 12),
+      padding: EdgeInsets.all(isWeb ? 12 : 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF374151) : Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? Colors.grey[600]! : Colors.grey[200]!,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.people,
+                size: isWeb ? 16 : 14,
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Users (${slot.allottedTo.length})',
+                style: TextStyle(
+                  fontSize: isWeb ? 13 : 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...slot.allottedTo.asMap().entries.map((entry) {
+            final index = entry.key;
+            final user = entry.value;
+            return Padding(
+              padding: EdgeInsets.only(
+                top: index > 0 ? 6 : 0,
+              ),
+              child: _buildUserCard(user, isDark, isWeb),
+            );
+          }).toList(),
+        ],
       ),
     );
   }

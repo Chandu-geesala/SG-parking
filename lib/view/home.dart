@@ -146,6 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Theme.of(context).colorScheme.primary,
         child: FutureBuilder<Map<String, dynamic>?>(
           future: _userSlotFuture,
+
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return Center(
@@ -240,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
 // Replace the _buildWelcomeSection method with this minimal design:
 
   Widget _buildWelcomeSection(String userName) {
-    return _WelcomeSectionState(userName: userName);
+    return WelcomeSectionState(userName: userName);
   }
 
 
@@ -423,16 +424,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-class _WelcomeSectionState extends StatefulWidget {
+class WelcomeSectionState extends StatefulWidget {
   final String userName;
 
-  const _WelcomeSectionState({required this.userName});
+  const WelcomeSectionState({required this.userName});
 
   @override
-  State<_WelcomeSectionState> createState() => _WelcomeSectionStateImpl();
+  State<WelcomeSectionState> createState() => WelcomeSectionStateImpl();
 }
 
-class _WelcomeSectionStateImpl extends State<_WelcomeSectionState>
+class WelcomeSectionStateImpl extends State<WelcomeSectionState>
     with TickerProviderStateMixin {
   late AnimationController _waveController;
   late AnimationController _fadeController;
