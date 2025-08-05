@@ -293,7 +293,7 @@ class _AllocationUIState extends State<AllocationUI> {
                 ),
                 SizedBox(height: isWide ? 20 : 16),
                 Text(
-                  'Complete Database Replace',
+                  'Complete Database Reset',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: isDarkMode ? Theme.of(context).colorScheme.onSurface : Colors.grey[800],
@@ -326,7 +326,7 @@ class _AllocationUIState extends State<AllocationUI> {
                     )
                         : const Icon(Icons.refresh, size: 20),
                     label: Text(
-                      isProcessing ? 'Processing...' : 'Complete Replace',
+                      isProcessing ? 'Processing...' : 'Reset',
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                     ),
                     style: ElevatedButton.styleFrom(
