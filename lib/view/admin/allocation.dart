@@ -149,7 +149,7 @@ class _AllocationUIState extends State<AllocationUI> {
             children: [
               Icon(Icons.warning, color: Colors.red[600], size: 28),
               const SizedBox(width: 8),
-              const Expanded(child: Text('Complete Database Replace')),
+              const Expanded(child: Text('Reset Database')),
             ],
           ),
           content: Column(
