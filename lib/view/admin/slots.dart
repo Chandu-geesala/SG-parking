@@ -18,8 +18,11 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
   // CORE DEPENDENCIES & VARIABLES
   // ============================================================================
 
+  String selectedFloor = 'B1';     // NEW  ➜ default floor
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _searchController = TextEditingController();
+
 
   // Animation controllers
   late AnimationController _animationController;
@@ -247,12 +250,29 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+
+                        _buildFloorDropdown(
+                          selectedFloor,
+                          setDialogState,
+                          isDark,
+                              (newFloor) => selectedFloor = newFloor,
+                        ),
+                        const SizedBox(height: 16),
                         _buildSlotNumberField(slotNoController, isDark),
                         const SizedBox(height: 16),
 
-                        _buildVehicleTypeDropdown(selectedVehicleType, setDialogState, isDark),
+                        // Fixed vehicle type dropdown with proper state update
+                        _buildVehicleTypeDropdownFixed(selectedVehicleType, setDialogState, isDark, (newValue) {
+                          selectedVehicleType = newValue;
+                          // Reset dimension and compatibility when changing vehicle type
+                          if (newValue == 'BIKE') {
+                            selectedDimension = null;
+                            selectedVehicleCompatibility = null;
+                          }
+                        }),
                         const SizedBox(height: 16),
 
+                        // Only show dimension and compatibility for CAR
                         if (selectedVehicleType == 'CAR') ...[
                           _buildDimensionDropdown(selectedDimension, setDialogState, isDark),
                           const SizedBox(height: 16),
@@ -303,6 +323,91 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
     );
   }
 
+  /// Build floor dropdown
+  Widget _buildFloorDropdown(
+      String selectedValue,
+      StateSetter setDialogState,
+      bool isDark,
+      void Function(String) onChanged,
+      ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select Floor *',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : Colors.black,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
+          style: TextStyle(color: isDark ? Colors.white : Colors.black),
+          items: const [
+            DropdownMenuItem(value: 'B1', child: Text('B1')),
+            DropdownMenuItem(value: 'B2', child: Text('B2')),
+            DropdownMenuItem(value: 'B3', child: Text('B3')),
+            DropdownMenuItem(value: 'B4', child: Text('B4')),
+          ],
+          onChanged: (value) => setDialogState(() => onChanged(value!)),
+        ),
+      ],
+    );
+  }
+
+
+
+  /// Build vehicle type dropdown with callback
+  Widget _buildVehicleTypeDropdownFixed(String selectedValue, StateSetter setDialogState, bool isDark, Function(String) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Vehicle Type *',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : Colors.black,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            prefixIcon: Icon(
+              selectedValue == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
+              color: isDark ? Colors.grey[400] : Colors.grey[500],
+            ),
+          ),
+          dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+          ),
+          items: const [
+            DropdownMenuItem(value: 'CAR', child: Text('Car')),
+            DropdownMenuItem(value: 'BIKE', child: Text('Bike')),
+          ],
+          onChanged: (value) {
+            setDialogState(() {
+              onChanged(value!);
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+
+  /// Handle adding new slot to Firestore
   /// Handle adding new slot to Firestore
   Future<void> _handleAddSlot(
       GlobalKey<FormState> formKey,
@@ -315,9 +420,14 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       String? selectedVehicleCompatibility,
       ) async {
     if (formKey.currentState!.validate()) {
-      // Check if slot number already exists
+
+      // ① Combine floor + number
+      final String combinedSlotNo =
+          '${selectedFloor.trim()}-${slotNoController.text.trim()}';
+
+      // ② Existence check uses combinedSlotNo
       final existingSlot = _allSlots.any(
-            (slot) => slot.slotNo.toLowerCase() == slotNoController.text.trim().toLowerCase(),
+            (slot) => slot.slotNo.toLowerCase() == combinedSlotNo.toLowerCase(),
       );
 
       if (existingSlot) {
@@ -326,15 +436,16 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       }
 
       try {
+        // ③ Save combinedSlotNo in Firestore
         final slotData = {
-          'slotNo': slotNoController.text.trim(),
+          'slotNo': combinedSlotNo,
           'vehicleType': selectedVehicleType,
           'slotPriority': selectedSlotPriority,
           'status': selectedStatus,
-          'vehicleCompatibility': selectedVehicleType == 'CAR'
-              ? selectedVehicleCompatibility
-              : null,
-          'dimension': selectedVehicleType == 'CAR' ? selectedDimension : null,
+          'vehicleCompatibility':
+          selectedVehicleType == 'CAR' ? selectedVehicleCompatibility : null,
+          'dimension':
+          selectedVehicleType == 'CAR' ? selectedDimension : null,
           'remarks': remarksController.text.trim().isEmpty
               ? null
               : remarksController.text.trim(),
@@ -342,7 +453,10 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
           'created_at': FieldValue.serverTimestamp(),
         };
 
-        await _firestore.collection('Slots').doc(slotNoController.text.trim()).set(slotData);
+        await _firestore
+            .collection('Slots')
+            .doc(combinedSlotNo)
+            .set(slotData);
 
         Navigator.of(context).pop();
         _showSuccessSnackBar('Parking slot added successfully!');
@@ -352,6 +466,7 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
       }
     }
   }
+
 
   /// Delete parking slot with confirmation
   Future<void> _deleteSlot(ParkingSlot slot) async {
@@ -541,8 +656,10 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           decoration: InputDecoration(
-            hintText: 'Enter slot number (e.g., B2-001, B1-203)',
+            hintText: 'Enter numeric slot (e.g., 234)',
             hintStyle: TextStyle(
               color: isDark ? Colors.grey[400] : Colors.grey[500],
             ),
@@ -560,52 +677,12 @@ class _ParkingSlotsPageState extends State<ParkingSlotsPage>
             return null;
           },
         ),
+
       ],
     );
   }
 
   /// Build vehicle type dropdown
-  Widget _buildVehicleTypeDropdown(String selectedValue, StateSetter setDialogState, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Vehicle Type *',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white : Colors.black,
-            fontSize: 14,
-          ),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: selectedValue,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            prefixIcon: Icon(
-              selectedValue == 'CAR' ? Icons.directions_car : Icons.two_wheeler,
-              color: isDark ? Colors.grey[400] : Colors.grey[500],
-            ),
-          ),
-          dropdownColor: isDark ? const Color(0xFF374151) : Colors.white,
-          style: TextStyle(
-            color: isDark ? Colors.white : Colors.black,
-          ),
-          items: const [
-            DropdownMenuItem(value: 'CAR', child: Text('Car')),
-            DropdownMenuItem(value: 'BIKE', child: Text('Bike')),
-          ],
-          onChanged: (value) {
-            setDialogState(() {
-              selectedValue = value!;
-            });
-          },
-        ),
-      ],
-    );
-  }
 
   /// Build dimension dropdown for car slots
   Widget _buildDimensionDropdown(String? selectedValue, StateSetter setDialogState, bool isDark) {
