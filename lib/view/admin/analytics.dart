@@ -456,9 +456,17 @@ class _AnalyticsExportWidgetState extends State<AnalyticsExportWidget> {
       }
 
       // Remove default sheet
-      if (excel.sheets.containsKey('Sheet1')) {
-        excel.delete('Sheet1');
+// Remove default sheet safely
+      try {
+        // Only delete if we have other sheets created
+        if (excel.sheets.containsKey('Sheet1') && excel.sheets.length > 1) {
+          excel.delete('Sheet1');
+        }
+      } catch (e) {
+        // If deletion fails, continue without deleting
+        debugPrint('Could not delete default sheet: $e');
       }
+
 
       setState(() => _exportProgress = 0.95);
 
