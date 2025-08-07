@@ -931,7 +931,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   List<Map<String, dynamic>> _allocatedPersons = [];
   List<Map<String, dynamic>> _availableUsers = [];
   bool _isLoading = false;
-  static const List<String> _periodUnits = ['Day', 'Month'];
+  // Remove the _periodUnits constant - no longer needed
 
   @override
   void initState() {
@@ -943,21 +943,20 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   // INITIALIZATION METHODS
   // ============================================================================
 
-  /// Initializes the allocated persons data with migration support
+  /// Initializes the allocated persons data - Updated for expiry date only
   void _initializeData() {
     _allocatedPersons = widget.allotedTo.map((person) {
       final personMap = person as Map<String, dynamic>;
 
-      // Migrate old period_months to new flexible period system
-      if (!personMap.containsKey('period_unit')) {
-        if (personMap.containsKey('period_months')) {
-          personMap['period_value'] = personMap['period_months'];
-          personMap['period_unit'] = 'Month';
-        } else {
-          personMap['period_value'] = 1;
-          personMap['period_unit'] = 'Day';
-        }
+      // Ensure expiry_date exists, if not set a default
+      if (!personMap.containsKey('expiry_date') || personMap['expiry_date'] == null) {
+        personMap['expiry_date'] = DateTime.now().add(const Duration(days: 30)).toIso8601String();
       }
+
+      // Remove old period fields for clean data
+      personMap.remove('period_months');
+      personMap.remove('period_value');
+      personMap.remove('period_unit');
 
       return Map<String, dynamic>.from(personMap);
     }).toList();
@@ -977,16 +976,14 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   // PERSON MANAGEMENT METHODS
   // ============================================================================
 
-  /// Adds a new person to the allocation list
+  /// Adds a new person to the allocation list - Updated
   void _addPerson() async {
     setState(() {
       _allocatedPersons.add({
         'name': '',
         'email': '',
-        'period_value': 1,
-        'period_unit': 'Day',
         'alloted_date': DateTime.now().toIso8601String(),
-        'expiry_date': _calculateExpiryDateFlexible(DateTime.now(), 1, 'Day'),
+        'expiry_date': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
       });
     });
     await _loadAvailableUsers();
@@ -1000,44 +997,51 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
     _loadAvailableUsers();
   }
 
-  /// Updates person data and recalculates expiry date if needed
+  /// Updates person data - Simplified
   void _updatePersonData(int index, String field, dynamic value) {
     setState(() {
       _allocatedPersons[index][field] = value;
-
-      // Recalculate expiry date when period changes
-      if (field == 'period_value' || field == 'period_unit') {
-        final allotedDateStr = _allocatedPersons[index]['alloted_date'];
-        final periodValue = _allocatedPersons[index]['period_value'] ?? 1;
-        final periodUnit = _allocatedPersons[index]['period_unit'] ?? 'Day';
-
-        if (allotedDateStr != null) {
-          final allotedDate = DateTime.parse(allotedDateStr);
-          _allocatedPersons[index]['expiry_date'] =
-              _calculateExpiryDateFlexible(allotedDate, periodValue, periodUnit);
-        }
-      }
     });
+  }
+
+  /// Shows date picker for selecting expiry date - NEW METHOD
+  Future<void> _selectExpiryDate(int index) async {
+    final currentExpiryStr = _allocatedPersons[index]['expiry_date'];
+    DateTime currentExpiry;
+
+    try {
+      currentExpiry = DateTime.parse(currentExpiryStr);
+    } catch (e) {
+      currentExpiry = DateTime.now().add(const Duration(days: 30));
+    }
+
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: currentExpiry,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 3)), // 3 years max
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              primary: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedDate != null) {
+      setState(() {
+        _allocatedPersons[index]['expiry_date'] = selectedDate.toIso8601String();
+      });
+    }
   }
 
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
-
-  /// Calculates expiry date based on period value and unit
-  String _calculateExpiryDateFlexible(DateTime allotedDate, int periodValue, String periodUnit) {
-    DateTime expiryDate;
-    if (periodUnit == 'Month') {
-      expiryDate = DateTime(
-        allotedDate.year,
-        allotedDate.month + periodValue,
-        allotedDate.day,
-      );
-    } else {
-      expiryDate = allotedDate.add(Duration(days: periodValue));
-    }
-    return expiryDate.toIso8601String();
-  }
 
   /// Determines slot priority based on allocation count
   String _determinePriority() {
@@ -1071,6 +1075,49 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
       return '${date.day}/${date.month}/${date.year} at ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return 'Invalid date';
+    }
+  }
+
+  /// Formats date for display in date picker (date only) - NEW METHOD
+  String _formatDateOnly(String? dateString) {
+    if (dateString == null || dateString.isEmpty) return 'Select Date';
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return 'Invalid Date';
+    }
+  }
+
+  /// Gets color based on days until expiry - NEW METHOD
+  Color _getExpiryColor(String? expiryDateStr) {
+    if (expiryDateStr == null) return Colors.grey;
+    try {
+      final expiryDate = DateTime.parse(expiryDateStr);
+      final daysLeft = expiryDate.difference(DateTime.now()).inDays;
+
+      if (daysLeft < 0) return Colors.red;
+      if (daysLeft <= 7) return Colors.orange;
+      if (daysLeft <= 30) return Colors.amber;
+      return Colors.green;
+    } catch (e) {
+      return Colors.grey;
+    }
+  }
+
+  /// Gets days until expiry text - NEW METHOD
+  String _getDaysUntilExpiryText(String? expiryDateStr) {
+    if (expiryDateStr == null) return 'Unknown';
+    try {
+      final expiryDate = DateTime.parse(expiryDateStr);
+      final daysLeft = expiryDate.difference(DateTime.now()).inDays;
+
+      if (daysLeft < 0) return 'Expired';
+      if (daysLeft == 0) return 'Today';
+      if (daysLeft == 1) return '1 day';
+      return '$daysLeft days';
+    } catch (e) {
+      return 'Invalid';
     }
   }
 
@@ -1115,7 +1162,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   // SLOT OPERATIONS
   // ============================================================================
 
-  /// Updates slot data in Firestore
+  /// Updates slot data in Firestore - Updated validation
   Future<void> _updateSlot() async {
     setState(() {
       _isLoading = true;
@@ -1127,20 +1174,17 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
         bool hasValidPersons = _allocatedPersons.every((person) {
           final name = person['name']?.toString().trim() ?? '';
           final email = person['email']?.toString().trim() ?? '';
-          final periodValue = person['period_value'];
-          final periodUnit = person['period_unit'];
+          final expiryDate = person['expiry_date'];
 
           return name.isNotEmpty &&
               email.isNotEmpty &&
-              periodValue != null &&
-              periodValue > 0 &&
-              periodUnit != null;
+              expiryDate != null;
         });
 
         if (!hasValidPersons) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Please fill all allocated person details including period or remove empty entries'),
+              content: Text('Please fill all allocated person details including expiry date or remove empty entries'),
               backgroundColor: Colors.red,
             ),
           );
@@ -1264,7 +1308,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
   }
 
   // ============================================================================
-  // BUILD METHOD
+  // BUILD METHOD - UPDATED
   // ============================================================================
 
   @override
@@ -1401,7 +1445,7 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                       ),
                     )
                   else
-                  // List of allocated persons
+                  // List of allocated persons - UPDATED SECTION
                     ...List.generate(_allocatedPersons.length, (index) {
                       final person = _allocatedPersons[index];
                       final hasExistingData = person['name']?.toString().trim().isNotEmpty == true &&
@@ -1570,62 +1614,71 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
 
                             const SizedBox(height: 12),
 
-                            // Period input
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: person['period_value']?.toString() ?? '1',
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      labelText: 'Period',
-                                      labelStyle: TextStyle(
-                                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                      ),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      prefixIcon: Icon(
-                                        Icons.access_time,
-                                        size: 20,
-                                        color: Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                    onChanged: (value) {
-                                      int period = int.tryParse(value) ?? 1;
-                                      if (period < 1) period = 1;
-                                      if (person['period_unit'] == 'Month' && period > 36) period = 36;
-                                      if (person['period_unit'] == 'Day' && period > 365) period = 365;
-                                      _updatePersonData(index, 'period_value', period);
-                                    },
+                            // REPLACED PERIOD INPUT WITH EXPIRY DATE PICKER
+                            GestureDetector(
+                              onTap: () => _selectExpiryDate(index),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                DropdownButton<String>(
-                                  value: person['period_unit'] ?? 'Day',
-                                  items: _periodUnits.map((unit) {
-                                    return DropdownMenuItem<String>(
-                                      value: unit,
-                                      child: Text(unit),
-                                    );
-                                  }).toList(),
-                                  onChanged: (selected) {
-                                    if (selected != null) {
-                                      _updatePersonData(index, 'period_unit', selected);
-                                    }
-                                  },
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.calendar_today,
+                                      size: 20,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Expiry Date',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _formatDateOnly(person['expiry_date']),
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              color: Theme.of(context).colorScheme.onSurface,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.edit_calendar,
+                                      size: 18,
+                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
 
                             const SizedBox(height: 12),
 
-                            // Date information
+                            // UPDATED DATE INFORMATION SECTION
                             Row(
                               children: [
+                                // Allotted Date
                                 if (person['alloted_date'] != null)
                                   Expanded(
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                       decoration: BoxDecoration(
                                         color: Colors.green.withOpacity(0.15),
                                         borderRadius: BorderRadius.circular(8),
@@ -1636,23 +1689,24 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                         children: [
                                           Row(
                                             children: [
-                                              Icon(Icons.calendar_today, size: 12, color: Colors.green.shade700),
-                                              const SizedBox(width: 4),
+                                              Icon(Icons.calendar_today, size: 14, color: Colors.green.shade700),
+                                              const SizedBox(width: 6),
                                               Text(
-                                                'Allotted',
+                                                'Allocated',
                                                 style: TextStyle(
                                                   color: Colors.green.shade700,
-                                                  fontSize: 10,
+                                                  fontSize: 11,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
                                             ],
                                           ),
+                                          const SizedBox(height: 2),
                                           Text(
-                                            _formatDate(person['alloted_date']),
+                                            _formatDateOnly(person['alloted_date']),
                                             style: TextStyle(
                                               color: Colors.green.shade700,
-                                              fontSize: 11,
+                                              fontSize: 13,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -1661,37 +1715,39 @@ class _SlotDetailsBottomSheetState extends State<SlotDetailsBottomSheet> {
                                     ),
                                   ),
                                 const SizedBox(width: 8),
+                                // Days Remaining Indicator
                                 if (person['expiry_date'] != null)
                                   Expanded(
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                       decoration: BoxDecoration(
-                                        color: Colors.orange.withOpacity(0.15),
+                                        color: _getExpiryColor(person['expiry_date']).withOpacity(0.15),
                                         borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                                        border: Border.all(color: _getExpiryColor(person['expiry_date']).withOpacity(0.3)),
                                       ),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Row(
                                             children: [
-                                              Icon(Icons.event_busy, size: 12, color: Colors.orange.shade700),
-                                              const SizedBox(width: 4),
+                                              Icon(Icons.access_time, size: 14, color: _getExpiryColor(person['expiry_date'])),
+                                              const SizedBox(width: 6),
                                               Text(
-                                                'Expires',
+                                                'Expires in',
                                                 style: TextStyle(
-                                                  color: Colors.orange.shade700,
-                                                  fontSize: 10,
+                                                  color: _getExpiryColor(person['expiry_date']),
+                                                  fontSize: 11,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
                                             ],
                                           ),
+                                          const SizedBox(height: 2),
                                           Text(
-                                            _formatDate(person['expiry_date']),
+                                            _getDaysUntilExpiryText(person['expiry_date']),
                                             style: TextStyle(
-                                              color: Colors.orange.shade700,
-                                              fontSize: 11,
+                                              color: _getExpiryColor(person['expiry_date']),
+                                              fontSize: 13,
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
